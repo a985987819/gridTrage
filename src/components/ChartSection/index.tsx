@@ -67,7 +67,7 @@ const ChartSection: React.FC<ChartSectionProps> = ({ records }) => {
             type: 'bar',
             yAxisIndex: 0,
             data: profitData,
-            itemStyle: { color: '#52c41a' }
+            itemStyle: { color: '#ef5c53' }
           },
           {
             name: '交易次数',

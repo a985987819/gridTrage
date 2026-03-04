@@ -26,23 +26,31 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
   onDateSelect,
   filterType,
   selectedDate,
-  onBackToToday
+  currentDate, // 接收父组件的当前显示日期
+  onBackToToday,
 }) => {
-  const [currentDate, setCurrentDate] = useState<Date>(selectedDate);
+  const [displayDate, setDisplayDate] = useState<Date>(currentDate);
   const [recordDateStats, setRecordDateStats] = useState<any>({});
 
+  // 2. 监听父组件 currentDate 变化，实时同步视图
+  useEffect(() => {
+    setDisplayDate(currentDate);
+  }, [currentDate]);
   useEffect(() => {
     setRecordDateStats(getRecordDateStats(records));
   }, [records]);
 
-  const handlePrevYear = () => setCurrentDate(addYears(currentDate, -1));
-  const handleNextYear = () => setCurrentDate(addYears(currentDate, 1));
-  const handlePrevMonth = () => setCurrentDate(addMonths(currentDate, -1));
-  const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
+
+  // 原有导航逻辑保留（上一年/下一年/上月/下月）
+  const handlePrevYear = () => setDisplayDate(addYears(displayDate, -1));
+  const handleNextYear = () => setDisplayDate(addYears(displayDate, 1));
+  const handlePrevMonth = () => setDisplayDate(addMonths(displayDate, -1));
+  const handleNextMonth = () => setDisplayDate(addMonths(displayDate, 1));
+
 
   // 手动生成当月日历格子（按月显示每日统计）
   const renderCalendarGrid = () => {
-    const today = dayjs(currentDate);
+    const today = dayjs(displayDate); // 改用 displayDate
     const year = today.year();
     const month = today.month();
     const firstDayOfMonth = today.startOf('month');
@@ -93,9 +101,9 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
               padding: '4px'
             }}
           >
-            <span style={{ fontSize: '14px' }}>{day}</span>
+            <span style={{ fontSize: '25px' }}>{day}</span>
             {hasRecord && (
-              <div style={{ fontSize: '10px', marginTop: '2px', textAlign: 'center' }}>
+              <div style={{ fontSize: '14px', marginTop: '2px', textAlign: 'center' }}>
                 <div>买：{dayStats.count}</div>
                 <div style={{ color: '#52c41a' }}>成：{dayStats.successCount}</div>
                 <div style={{ color: '#fa8c16' }}>¥{dayStats.profit.toFixed(2)}</div>
@@ -112,7 +120,7 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
   // 按年查看时显示年份选择
   const renderYearSelector = () => {
     const years = Array.from({ length: 10 }, (_, i) => 2020 + i); // 2020-2029年
-    const currentYear = dayjs(currentDate).year();
+    const currentYear = dayjs(displayDate).year();
 
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', marginTop: '16px' }}>

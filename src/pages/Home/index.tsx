@@ -76,16 +76,21 @@ const Home: React.FC = () => {
   // 回到今日按钮点击事件
   const handleBackToToday = () => {
     const today = new Date();
+    // 1. 更新选中日期（原有逻辑）
     setSelectedDate(today);
-    // 新增：同步更新日历的 currentDate
+    // 2. 新增：强制更新日历显示的月份为今日所在月份
     setCurrentDate(today);
+
+    // 3. 重新筛选数据
     const filtered = filterRecordsByDate(allRecords, filterType, today);
     setFilteredRecords(filtered);
 
+    // 4. 如果是按年查看，更新年度统计
     if (filterType === 'year') {
       const stats = calculateYearlyStats(filtered);
       setYearlyStats(stats);
     }
+
   };
 
   // 处理状态变更（记录完成日期）
@@ -237,13 +242,6 @@ const Home: React.FC = () => {
                 按月查看
               </Button>
             </div>
-            <Button
-              type="default"
-              icon={<CalendarOutlined />}
-              onClick={handleBackToToday}
-            >
-              回到今日
-            </Button>
           </div>
 
           {/* 按年查看时显示年度统计卡片 */}
