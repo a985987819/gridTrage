@@ -225,24 +225,6 @@ const Home: React.FC = () => {
           minHeight: 280,
           marginTop: 0
         }}>
-          {/* 筛选类型切换（移除按日查看按钮）+ 回到今日按钮 */}
-          <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <Button
-                type={filterType === 'year' ? 'primary' : 'default'}
-                onClick={() => switchFilterType('year')}
-                style={{ marginRight: 8 }}
-              >
-                按年查看
-              </Button>
-              <Button
-                type={filterType === 'month' ? 'primary' : 'default'}
-                onClick={() => switchFilterType('month')}
-              >
-                按月查看
-              </Button>
-            </div>
-          </div>
 
           {/* 按年查看时显示年度统计卡片 */}
           {filterType === 'year' && (
@@ -272,7 +254,51 @@ const Home: React.FC = () => {
               </div>
             </Card>
           )}
+          <Divider />
 
+          {/* 交易记录表格 */}
+          <RecordTable
+            records={filteredRecords}
+            onStatusChange={handleStatusChange}
+            onDeleteRecord={handleDeleteRecord}
+          />
+
+          {/* 统计卡片 */}
+          <StatCards records={filteredRecords} />
+
+          {/* 图表区域 */}
+          <ChartSection records={filteredRecords} />
+
+          <Divider />
+
+
+          {/* 筛选类型切换（移除按日查看按钮）+ 回到今日按钮 */}
+          <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <Button
+                type={filterType === 'year' ? 'primary' : 'default'}
+                onClick={() => switchFilterType('year')}
+                style={{ marginRight: 8 }}
+              >
+                按年查看
+              </Button>
+              <Button
+                type={filterType === 'month' ? 'primary' : 'default'}
+                onClick={() => switchFilterType('month')}
+              >
+                按月查看
+              </Button>
+            </div>
+          </div>
+          {/* 总营收统计 */}
+          <Card
+            title="累计统计"
+            style={{ marginTop: 24, textAlign: 'right' }}
+          >
+            <Title level={4} style={{ margin: 0, color: '#52c41a' }}>
+              累计已实现总营收：¥ {totalProfit}
+            </Title>
+          </Card>
           {/* 日历选择器 */}
           <CalendarPicker
             records={allRecords}
@@ -283,32 +309,6 @@ const Home: React.FC = () => {
             onBackToToday={handleBackToToday}
           />
 
-          <Divider />
-
-          {/* 统计卡片 */}
-          <StatCards records={filteredRecords} />
-
-          {/* 图表区域 */}
-          <ChartSection records={filteredRecords} />
-
-          <Divider />
-
-          {/* 交易记录表格 */}
-          <RecordTable
-            records={filteredRecords}
-            onStatusChange={handleStatusChange}
-            onDeleteRecord={handleDeleteRecord}
-          />
-
-          {/* 总营收统计 */}
-          <Card
-            title="累计统计"
-            style={{ marginTop: 24, textAlign: 'right' }}
-          >
-            <Title level={4} style={{ margin: 0, color: '#52c41a' }}>
-              累计已实现总营收：¥ {totalProfit}
-            </Title>
-          </Card>
         </div>
       </Content>
 
