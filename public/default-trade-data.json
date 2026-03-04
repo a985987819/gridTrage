@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "stockName": "默认股票1",
+    "date": "2026-03-01",
+    "timestamp": 1740710400000,
+    "buyPrice": "10.00",
+    "buyAmount": 500,
+    "targetPrice": "10.47",
+    "expectedProfit": "227.00",
+    "status": "未完成",
+    "completeDate": ""
+  },
+  {
+    "id": 2,
+    "stockName": "默认股票2",
+    "date": "2026-03-02",
+    "timestamp": 1740796800000,
+    "buyPrice": "20.00",
+    "buyAmount": 500,
+    "targetPrice": "20.47",
+    "expectedProfit": "227.00",
+    "status": "已完成",
+    "completeDate": "2026-03-05"
+  }
+]

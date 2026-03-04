@@ -1,7 +1,15 @@
 // src/pages/Home/index.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout, Menu, Button, Typography, Divider, Card, Modal, message } from 'antd';
+import {
+  getLocalStorageRecords,
+  saveRecordsToLocalStorage,
+  exportRecordsToJSON,
+  importRecordsFromJSON,
+  loadDefaultRecords,
+  exportRecordsToExcel
+} from '../../utils/dataHandler';
 import {
   DashboardOutlined,
   PlusOutlined,
@@ -40,12 +48,32 @@ const Home: React.FC = () => {
   const [showStockModal, setShowStockModal] = useState(false);
   const [totalProfit, setTotalProfit] = useState('0.00');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  // 文件选择器 ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 新增：按年统计数据
   const [yearlyStats, setYearlyStats] = useState({
     buyCount: 0,
     successCount: 0,
     profit: '0.00'
   });
+
+  // 初始化：加载默认基础数据 + 读取本地记录
+  useEffect(() => {
+    const initData = async () => {
+      // 第一步：加载默认基础数据（仅无本地数据时）
+      await loadDefaultRecords();
+
+      // 第二步：读取本地记录
+      const records = getLocalStorageRecords();
+      setAllRecords(records);
+      setFilteredRecords(filterRecordsByDate(records, filterType, new Date()));
+
+      const { profit } = calculateStats(records);
+      setTotalProfit(profit);
+    };
+
+    initData();
+  }, [filterType]);
 
   // 初始化数据
   useEffect(() => {
@@ -71,6 +99,52 @@ const Home: React.FC = () => {
       const stats = calculateYearlyStats(filtered);
       setYearlyStats(stats);
     }
+  };
+  // ========== 新增：导入/导出事件 ==========
+  // 触发导出
+  const handleExport = () => {
+    exportRecordsToJSON();
+  };
+
+  // 触发导入（打开文件选择框）
+  const handleImportClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  // 处理文件上传
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 导入数据
+    const success = await importRecordsFromJSON(file);
+    if (success) {
+      // 重新加载数据
+      const updatedRecords = getLocalStorageRecords();
+      setAllRecords(updatedRecords);
+      setFilteredRecords(filterRecordsByDate(updatedRecords, filterType, selectedDate));
+
+      const { profit } = calculateStats(updatedRecords);
+      setTotalProfit(profit);
+    }
+
+    // 清空文件选择
+    e.target.value = '';
+  };
+  // 导出 Excel
+  const handleExportExcel = () => {
+    exportRecordsToExcel();
+  };
+  // 手动保存并去重
+  const handleSaveDeduplicate = () => {
+    saveRecordsToLocalStorage(allRecords);
+    // 刷新数据
+    const updatedRecords = getLocalStorageRecords();
+    setAllRecords(updatedRecords);
+    setFilteredRecords(filterRecordsByDate(updatedRecords, filterType, selectedDate));
+    alert('数据已去重并保存！');
   };
 
   // 回到今日按钮点击事件
@@ -225,6 +299,31 @@ const Home: React.FC = () => {
           minHeight: 280,
           marginTop: 0
         }}>
+          {/* ========== 新增：导入/导出/保存按钮 ========== */}
+          <div style={{ marginBottom: 16, display: 'flex', gap: '12px' }}>
+            <Button type="primary" onClick={handleExport}>
+              导出 JSON
+            </Button>
+
+            {/* ========== 新增这里 ========== */}
+            <Button type="primary" onClick={handleExportExcel}>
+              导出 Excel
+            </Button>
+            <Button type="default" onClick={handleImportClick}>
+              导入数据
+            </Button>
+            <Button type="default" onClick={handleSaveDeduplicate}>
+              保存并去重
+            </Button>
+            {/* 隐藏的文件选择框 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
+          </div>
 
           {/* 按年查看时显示年度统计卡片 */}
           {filterType === 'year' && (

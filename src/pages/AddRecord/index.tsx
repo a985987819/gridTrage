@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // 替换 Link 为 useNavigate
 import { Layout, Form, Input, Select, Button, Typography, Card, Divider, Modal, message } from 'antd';
+import { saveRecordsToLocalStorage, getLocalStorageRecords } from '../../utils/dataHandler';
 import {
   ArrowLeftOutlined,
   StockOutlined,
@@ -87,6 +88,7 @@ const AddRecord: React.FC = () => {
         status: '未完成',
         completeDate: ''
       };
+      const currentRecords = getLocalStorageRecords();
 
       // 保存记录
       const records = getTradeRecords();
@@ -100,6 +102,9 @@ const AddRecord: React.FC = () => {
         targetProfit: 0.47
       });
 
+      const updatedRecords = [...currentRecords, newRecord];
+      // 保存（自动去重）
+      saveRecordsToLocalStorage(updatedRecords);
       // 提示成功
       message.success({
         title: '添加成功',
