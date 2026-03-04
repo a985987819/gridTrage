@@ -17,4 +17,5 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom', 'antd', 'react-router-dom'],
   },
+  // base: '/grid-trade/',
 });

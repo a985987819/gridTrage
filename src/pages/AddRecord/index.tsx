@@ -186,7 +186,6 @@ const AddRecord: React.FC = () => {
                 label="买入数量 (股)"
                 rules={[
                   { required: true, message: '请输入买入数量！' },
-                  { type: 'number', min: 100, message: '买入数量不能少于100股！' }
                 ]}
               >
                 <Input
@@ -209,7 +208,9 @@ const AddRecord: React.FC = () => {
                   step="0.01"
                 />
               </Form.Item>
-
+              <span style={{ color: '#ef5c53', marginBottom: '20px' }}>
+                预计营收：<span style={{ color: '#1890ff' }}>{(form.getFieldValue('targetProfit') * form.getFieldValue('buyAmount') || 0).toFixed(2)}</span>元
+              </span>
               <Form.Item>
                 <Button
                   type="primary"
