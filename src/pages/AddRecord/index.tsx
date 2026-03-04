@@ -1,7 +1,7 @@
 // src/pages/AddRecord/index.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // 替换 Link 为 useNavigate
-import { Layout, Form, Input, Select, Button, Typography, Card, Divider, Modal } from 'antd';
+import { Layout, Form, Input, Select, Button, Typography, Card, Divider, Modal, message } from 'antd';
 import {
   ArrowLeftOutlined,
   StockOutlined,
@@ -63,11 +63,15 @@ const AddRecord: React.FC = () => {
     try {
       setLoading(true);
       const values = await form.validateFields();
+      console.log(`values.buyPrice: ${values.buyPrice}`, Number(values.buyPrice));
+      console.log(`values.targetProfit: ${values.targetProfit}`, values.targetProfit);
+
+
 
       // 计算目标价格和预计营收
-      const targetPrice = (values.buyPrice + values.targetProfit).toFixed(2);
+      const targetPrice = (Number(values.buyPrice) + Number(values.targetProfit)).toFixed(2);
       const expectedProfit = (
-        (parseFloat(targetPrice) - values.buyPrice) * values.buyAmount - 8
+        (parseFloat(targetPrice) - Number(values.buyPrice)) * values.buyAmount - 8
       ).toFixed(2);
 
       // 创建新记录
@@ -76,7 +80,7 @@ const AddRecord: React.FC = () => {
         stockName: values.stockName,
         date: formatDate(new Date()),
         timestamp: new Date().getTime(),
-        buyPrice: values.buyPrice.toFixed(2),
+        buyPrice: (Number(values.buyPrice)).toFixed(2),
         buyAmount: values.buyAmount,
         targetPrice,
         expectedProfit,
@@ -97,13 +101,12 @@ const AddRecord: React.FC = () => {
       });
 
       // 提示成功
-      Modal.success({
+      message.success({
         title: '添加成功',
         content: '交易记录添加成功！',
-        onOk: () => navigate('/') // 跳回首页
       });
     } catch (error) {
-      console.error('添加记录失败:', error);
+      message.error('添加记录失败:', error);
     } finally {
       setLoading(false);
     }

@@ -1,7 +1,7 @@
 // src/pages/Home/index.tsx
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Layout, Menu, Button, Typography, Divider, Card, Modal } from 'antd';
+import { Layout, Menu, Button, Typography, Divider, Card, Modal, message } from 'antd';
 import {
   DashboardOutlined,
   PlusOutlined,
@@ -122,12 +122,12 @@ const Home: React.FC = () => {
       }
 
       // 操作成功提示
-      Modal.success({
+      message.success({
         title: '操作成功',
         content: `交易状态已更新为「${newStatus}」！`,
       });
     } catch (error) {
-      Modal.error({
+      message.error({
         title: '操作失败',
         content: '交易状态更新失败，请重试！',
       });
