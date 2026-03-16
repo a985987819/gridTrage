@@ -37,6 +37,16 @@ const AddRecord: React.FC = () => {
   const [stockNames, setStockNames] = useState<string[]>([]);
   const [showStockModal, setShowStockModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hopeProfit, setHopeProfit] = useState(0);
+  useEffect(() => {
+    const buyAmount = form.getFieldValue('buyAmount');
+    const targetProfit = form.getFieldValue('targetProfit');
+    console.log(`进来了1123`);
+
+    if (buyAmount && targetProfit) {
+      setHopeProfit((targetProfit * buyAmount - 8).toFixed(2));
+    }
+  }, [form.getFieldValue('buyAmount'), form.getFieldValue('targetProfit')])
 
   // 初始化股票列表
   useEffect(() => {
@@ -64,54 +74,57 @@ const AddRecord: React.FC = () => {
     try {
       setLoading(true);
       const values = await form.validateFields();
-      console.log(`values.buyPrice: ${values.buyPrice}`, Number(values.buyPrice));
-      console.log(`values.targetProfit: ${values.targetProfit}`, values.targetProfit);
 
+      const buyPrice = Number(values.buyPrice);
+      const targetProfit = Number(values.targetProfit);
+      const buyAmount = Number(values.buyAmount);
 
+      if (isNaN(buyPrice) || isNaN(targetProfit) || isNaN(buyAmount)) {
+        Modal.error({ title: '输入错误', content: '请输入有效的数字！' });
+        setLoading(false);
+        return;
+      }
 
-      // 计算目标价格和预计营收
-      const targetPrice = (Number(values.buyPrice) + Number(values.targetProfit)).toFixed(2);
+      const targetPrice = (buyPrice + targetProfit).toFixed(2);
       const expectedProfit = (
-        (parseFloat(targetPrice) - Number(values.buyPrice)) * values.buyAmount - 8
+        (parseFloat(targetPrice) - buyPrice) * buyAmount - 8
       ).toFixed(2);
 
-      // 创建新记录
-      const newRecord: TradeRecord = {
+      const newRecord = {
         id: Date.now(),
         stockName: values.stockName,
         date: formatDate(new Date()),
         timestamp: new Date().getTime(),
-        buyPrice: (Number(values.buyPrice)).toFixed(2),
-        buyAmount: values.buyAmount,
+        buyPrice: buyPrice.toFixed(2),
+        buyAmount: buyAmount,
         targetPrice,
         expectedProfit,
         status: '未完成',
-        completeDate: ''
+        completeDate: '',
+        completedAmount: 0 // 新增：默认完成数量为0
       };
+
       const currentRecords = getLocalStorageRecords();
+      const updatedRecords = [...currentRecords, newRecord];
+      saveRecordsToLocalStorage(updatedRecords);
 
-      // 保存记录
-      const records = getTradeRecords();
-      records.push(newRecord);
-      saveTradeRecords(records);
-
-      // 重置表单
       form.setFieldsValue({
         buyPrice: undefined,
         buyAmount: 500,
         targetProfit: 0.47
       });
 
-      const updatedRecords = [...currentRecords, newRecord];
-      // 保存（自动去重）
-      saveRecordsToLocalStorage(updatedRecords);
-      // 提示成功
       message.success({
         title: '添加成功',
-        content: '交易记录添加成功！',
+        content: '交易记录已保存！',
+        // onOk: () => navigate('/')
       });
     } catch (error) {
-      message.error('添加记录失败:', error);
+      console.error('添加记录失败:', error);
+      message.error({
+        title: '添加失败',
+        content: '交易记录保存失败，请重试！',
+      });
     } finally {
       setLoading(false);
     }
@@ -214,7 +227,7 @@ const AddRecord: React.FC = () => {
                 />
               </Form.Item>
               <span style={{ color: '#ef5c53', marginBottom: '20px' }}>
-                预计营收：<span style={{ color: '#1890ff' }}>{(form.getFieldValue('targetProfit') * form.getFieldValue('buyAmount') || 0).toFixed(2)}</span>元
+                预计营收：<span style={{ color: '#1890ff' }}>{hopeProfit}</span>元
               </span>
               <Form.Item>
                 <Button

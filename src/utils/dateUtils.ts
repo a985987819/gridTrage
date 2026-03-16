@@ -37,10 +37,10 @@ export const getRecordDateStats = (records: TradeRecord[]): DateStat & {
   return dateStats;
 };
 
-// 筛选指定时间范围的记录（修复按年筛选逻辑）
+// 筛选指定时间范围的记录（修复按年筛选逻辑，新增按周筛选）
 export const filterRecordsByDate = (
   records: TradeRecord[],
-  filterType: 'year' | 'month',
+  filterType: 'year' | 'month' | 'week',
   targetDate: Date
 ): TradeRecord[] => {
   return records.filter(record => {
@@ -54,6 +54,9 @@ export const filterRecordsByDate = (
       case 'month':
         // 按月筛选 - 匹配年+月
         return recordDate.year() === target.year() && recordDate.month() === target.month();
+      case 'week':
+        // 按周筛选 - 匹配同一周
+        return recordDate.week() === target.week() && recordDate.year() === target.year();
       default:
         return true;
     }
@@ -66,8 +69,13 @@ export const calculateStats = (records: TradeRecord[]): StatData => {
   let totalCount = records.length;
   let completedCount = 0;
   let uncompletedCount = 0;
+  let totalBuyAmount = 0; // 总买入数量
+  let totalCompletedAmount = 0; // 总完成数量
 
   records.forEach(record => {
+    totalBuyAmount += record.buyAmount;
+    totalCompletedAmount += record.completedAmount ?? 0;
+
     if (record.status === '已完成') {
       profit += parseFloat(record.expectedProfit);
       completedCount++;
@@ -80,8 +88,28 @@ export const calculateStats = (records: TradeRecord[]): StatData => {
     profit: profit.toFixed(2),
     totalCount,
     completedCount,
-    uncompletedCount
+    uncompletedCount,
+    totalBuyAmount,
+    totalCompletedAmount
   };
+};
+
+// 新增：计算已实现营收（所有已完成记录的预期盈利之和）
+export const calculateRealizedRevenue = (records: TradeRecord[]): string => {
+  const realizedRevenue = records.reduce((sum, record) => {
+    if (record.status === '已完成') {
+      return sum + parseFloat(record.expectedProfit);
+    }
+    return sum;
+  }, 0);
+
+  return realizedRevenue.toFixed(2);
+};
+
+// 计算单条记录的完成进度（0-100）
+export const calculateRecordProgress = (record: TradeRecord): number => {
+  if (record.buyAmount === 0) return 0;
+  return Math.round(((record.completedAmount ?? 0) / record.buyAmount) * 100);
 };
 
 // 新增：按年统计数据

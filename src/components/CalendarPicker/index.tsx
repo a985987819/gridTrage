@@ -1,6 +1,6 @@
 // src/components/CalendarPicker/index.tsx
 import { useState, useEffect } from 'react';
-import { Button, Typography, Space, Tooltip } from 'antd';
+import { Button, Typography, Space } from 'antd';
 import { LeftOutlined, RightOutlined, CalendarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { TradeRecord } from '../../types';
@@ -15,10 +15,11 @@ const { Title } = Typography;
 
 interface CalendarPickerProps {
   records: TradeRecord[];
-  onDateSelect: (type: 'year' | 'month', date: Date) => void;
-  filterType: 'year' | 'month';
+  onDateSelect: (type: 'year' | 'month' | 'week', date: Date) => void;
+  filterType: 'year' | 'month' | 'week';
   selectedDate: Date;
   onBackToToday: () => void;
+  currentDate?: Date;
 }
 
 const CalendarPicker: React.FC<CalendarPickerProps> = ({
@@ -26,20 +27,20 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
   onDateSelect,
   filterType,
   selectedDate,
-  currentDate, // 接收父组件的当前显示日期
   onBackToToday,
+  currentDate = new Date(),
 }) => {
   const [displayDate, setDisplayDate] = useState<Date>(currentDate);
   const [recordDateStats, setRecordDateStats] = useState<any>({});
 
-  // 2. 监听父组件 currentDate 变化，实时同步视图
-  useEffect(() => {
-    setDisplayDate(currentDate);
-  }, [currentDate]);
   useEffect(() => {
     setRecordDateStats(getRecordDateStats(records));
   }, [records]);
 
+  // 监听父组件 currentDate 变化，实时同步视图
+  useEffect(() => {
+    setDisplayDate(currentDate);
+  }, [currentDate]);
 
   // 原有导航逻辑保留（上一年/下一年/上月/下月）
   const handlePrevYear = () => setDisplayDate(addYears(displayDate, -1));
@@ -47,6 +48,10 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
   const handlePrevMonth = () => setDisplayDate(addMonths(displayDate, -1));
   const handleNextMonth = () => setDisplayDate(addMonths(displayDate, 1));
 
+  // 切换过滤类型
+  const handleFilterChange = (type: 'year' | 'month' | 'week', date: Date) => {
+    onDateSelect(type, date);
+  };
 
   // 手动生成当月日历格子（按月显示每日统计）
   const renderCalendarGrid = () => {
@@ -71,46 +76,39 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
       // 日历格子点击事件
       const handleClick = () => {
         if (!hasRecord && filterType === 'month') return;
-        onDateSelect(filterType, date.toDate());
+        handleFilterChange(filterType, date.toDate());
       };
 
       return (
-        <Tooltip
+        <div
           key={day}
-          title={hasRecord ? (
-            <div style={{ textAlign: 'left' }}>
-              <div>买入：{dayStats.count} 笔</div>
-              <div>成功：{dayStats.successCount} 笔</div>
-              <div>盈利：¥ {dayStats.profit.toFixed(2)}</div>
-            </div>
-          ) : '无交易记录'}
-          placement="top"
+          onClick={handleClick}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            aspectRatio: '1 / 1',
+            backgroundColor: isSelected ? '#1890ff' : hasRecord ? '#eff6ff' : '#f9fafb',
+            color: isSelected ? '#fff' : '#333',
+            borderRadius: '4px',
+            cursor: hasRecord || filterType === 'year' ? 'pointer' : 'not-allowed',
+            padding: '4px'
+          }}
         >
-          <div
-            onClick={handleClick}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              aspectRatio: '1 / 1',
-              backgroundColor: isSelected ? '#1890ff' : hasRecord ? '#eff6ff' : '#f9fafb',
-              color: isSelected ? '#fff' : '#333',
-              borderRadius: '4px',
-              cursor: hasRecord || filterType === 'year' ? 'pointer' : 'not-allowed',
-              padding: '4px'
-            }}
-          >
-            <span style={{ fontSize: '25px' }}>{day}</span>
-            {hasRecord && (
-              <div style={{ fontSize: '14px', marginTop: '2px', textAlign: 'center' }}>
-                <div>买：{dayStats.count}</div>
-                <div style={{ color: '#52c41a' }}>成：{dayStats.successCount}</div>
-                <div style={{ color: '#fa8c16' }}>¥{dayStats.profit.toFixed(2)}</div>
+          <span style={{ fontSize: '25px' }}>{day}</span>
+          {hasRecord && (
+            <div style={{ fontSize: '10px', marginTop: '2px', textAlign: 'center' }}>
+              <div>买：{dayStats.count}</div>
+              <div style={{ color: '#52c41a' }}>成：{dayStats.successCount}</div>
+              <div style={{ color: '#fa8c16' }}>¥{Number(dayStats.profit).toFixed(2)}</div>
+              {/* 新增：完成进度 */}
+              <div style={{ color: '#1890ff' }}>
+                进度：{Math.round((dayStats.totalCompletedAmount / dayStats.totalBuyAmount) * 100)}%
               </div>
-            )}
-          </div>
-        </Tooltip>
+            </div>
+          )}
+        </div>
       );
     });
 
@@ -119,8 +117,18 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
 
   // 按年查看时显示年份选择
   const renderYearSelector = () => {
-    const years = Array.from({ length: 10 }, (_, i) => 2020 + i); // 2020-2029年
+    const startYear = 2020;
     const currentYear = dayjs(displayDate).year();
+    // 获取记录中的最早和最晚年份，以此为基础调整年份范围
+    const recordYears = records.map(r => dayjs(r.timestamp).year());
+    const minYear = recordYears.length > 0 ? Math.min(...recordYears) : startYear;
+    const maxYear = recordYears.length > 0 ? Math.max(...recordYears) : currentYear;
+
+    // 创建年份列表，包括记录中存在的年份及前后各2年的扩展
+    const years = Array.from(
+      { length: Math.max(maxYear - minYear + 5, 10) },
+      (_, i) => minYear + i - 2
+    ).filter(year => year >= 2020); // 限制最小年份为2020
 
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', marginTop: '16px' }}>
@@ -131,7 +139,7 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
           return (
             <div
               key={year}
-              onClick={() => hasRecord && onDateSelect('year', new Date(year, 0, 1))}
+              onClick={() => hasRecord && handleFilterChange('year', new Date(year, 0, 1))}
               style={{
                 padding: '16px',
                 textAlign: 'center',
@@ -160,20 +168,56 @@ const CalendarPicker: React.FC<CalendarPickerProps> = ({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>
           {filterType === 'year'
-            ? dayjs(currentDate).format('YYYY年')
-            : dayjs(currentDate).format('YYYY年MM月')}
+            ? dayjs(displayDate).format('YYYY年')
+            : filterType === 'month'
+            ? dayjs(displayDate).format('YYYY年MM月')
+            : filterType === 'week'
+            ? `${dayjs(displayDate).startOf('week').format('MM月DD日')} - ${dayjs(displayDate).endOf('week').format('MM月DD日')}`
+            : dayjs(displayDate).format('YYYY年MM月')}
         </Title>
         <Space>
-          <Button onClick={handlePrevYear} icon={<LeftOutlined />}>上一年</Button>
-          {filterType === 'month' && (
-            <Button onClick={handlePrevMonth} icon={<LeftOutlined />}>上月</Button>
+          {filterType !== 'custom' && (
+            <>
+              <Button onClick={handlePrevYear} icon={<LeftOutlined />}>上一年</Button>
+              {filterType === 'month' && (
+                <Button onClick={handlePrevMonth} icon={<LeftOutlined />}>上月</Button>
+              )}
+              {filterType === 'month' && (
+                <Button onClick={handleNextMonth} icon={<RightOutlined />}>下月</Button>
+              )}
+              <Button onClick={handleNextYear} icon={<RightOutlined />}>下一年</Button>
+            </>
           )}
-          {filterType === 'month' && (
-            <Button onClick={handleNextMonth} icon={<RightOutlined />}>下月</Button>
-          )}
-          <Button onClick={handleNextYear} icon={<RightOutlined />}>下一年</Button>
-          <Button onClick={onBackToToday} icon={<CalendarOutlined />} type="primary">
+          <Button
+            onClick={onBackToToday}
+            icon={<CalendarOutlined />}
+            type="primary"
+          >
             回到今日
+          </Button>
+        </Space>
+      </div>
+
+      {/* 过滤类型切换按钮 */}
+      <div style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <Button
+            type={filterType === 'week' ? 'primary' : 'default'}
+            onClick={() => handleFilterChange('week', new Date())}
+          >
+            本周
+          </Button>
+          <Button
+            type={filterType === 'month' ? 'primary' : 'default'}
+            onClick={() => handleFilterChange('month', new Date())}
+          >
+            本月
+          </Button>
+          <Button
+            type={filterType === 'year' ? 'primary' : 'default'}
+            onClick={() => handleFilterChange('year', new Date())}
+          >
+            今年
           </Button>
         </Space>
       </div>

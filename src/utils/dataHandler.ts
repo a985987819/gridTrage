@@ -41,12 +41,27 @@ export const exportRecordsToExcel = () => {
   XLSX.writeFile(wb, `交易记录_${new Date().getTime()}.xlsx`);
   alert('Excel 导出成功！');
 };
+
+
+/**
+ * 初始化数据（为旧数据补充 completedAmount 和其他新字段）
+ */
+export const initRecordData = (records: TradeRecord[]): TradeRecord[] => {
+  return records.map(record => ({
+    ...record,
+    completedAmount: record.completedAmount ?? (record.status === '已完成' ? record.buyAmount : 0),
+    nextPurchasePrice: record.nextPurchasePrice,
+    nextExpectedShares: record.nextExpectedShares
+  }));
+};
+
 /**
  * 从 localStorage 获取交易记录（确保返回数组）
  */
 export const getLocalStorageRecords = (): TradeRecord[] => {
   const rawData = localStorage.getItem(CONFIG.STORAGE_KEY);
-  return rawData ? JSON.parse(rawData) : [];
+  const rawRecords = rawData ? JSON.parse(rawData) : [];
+  return initRecordData(rawRecords);
 };
 
 /**
@@ -59,9 +74,16 @@ export const deduplicateRecords = (data: TradeRecord[]): TradeRecord[] => {
 
   const uniqueMap = new Map<string | number, TradeRecord>();
   data.forEach(item => {
-    const uniqueValue = item[CONFIG.UNIQUE_KEY];
+    // 为旧数据补充 completedAmount 字段（兼容）
+    const normalizedItem = {
+      ...item,
+      completedAmount: item.completedAmount ?? (item.status === '已完成' ? item.buyAmount : 0),
+      nextPurchasePrice: item.nextPurchasePrice,
+      nextExpectedShares: item.nextExpectedShares
+    };
+    const uniqueValue = normalizedItem[CONFIG.UNIQUE_KEY];
     if (uniqueValue !== undefined && uniqueValue !== null) {
-      uniqueMap.set(uniqueValue, item); // 重复项会覆盖，保留最后一条
+      uniqueMap.set(uniqueValue, normalizedItem);
     }
   });
 
@@ -154,14 +176,12 @@ export const importRecordsFromJSON = async (file: File): Promise<boolean> => {
  */
 export const loadDefaultRecords = async (): Promise<boolean> => {
   try {
-    // 先检查本地是否已有数据，有则不加载
     const currentRecords = getLocalStorageRecords();
     if (currentRecords.length > 0) {
       console.log('本地已有数据，跳过默认基础数据加载');
       return true;
     }
 
-    // 请求默认 JSON 文件（public 目录下）
     const response = await fetch(CONFIG.DEFAULT_JSON_PATH);
     if (!response.ok) {
       throw new Error(`请求失败：${response.status}`);
@@ -172,8 +192,9 @@ export const loadDefaultRecords = async (): Promise<boolean> => {
       throw new Error('默认数据格式错误，必须是数组');
     }
 
-    // 去重后保存
-    saveRecordsToLocalStorage(defaultRecords);
+    // 补充 completedAmount 字段
+    const normalizedRecords = initRecordData(defaultRecords);
+    saveRecordsToLocalStorage(normalizedRecords);
     alert('默认基础数据加载成功！');
     return true;
   } catch (error) {

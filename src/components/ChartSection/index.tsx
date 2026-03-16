@@ -24,7 +24,7 @@ const ChartSection: React.FC<ChartSectionProps> = ({ records }) => {
 
     // 更新图表数据
     const updateChart = () => {
-      const { dates, profitData, countData } = getChartData(records);
+      const { dates, profitData, countData, successCountData } = getChartData(records);
 
       const option: EChartsOption = {
         title: {
@@ -36,7 +36,7 @@ const ChartSection: React.FC<ChartSectionProps> = ({ records }) => {
           trigger: 'axis',
           axisPointer: { type: 'shadow' }
         },
-        legend: { data: ['已实现营收 (元)', '交易次数'], top: 30 },
+        legend: { data: ['已实现营收 (元)', '交易次数', '完成次数'], top: 30 },
         grid: {
           left: '3%',
           right: '4%',
@@ -77,6 +77,16 @@ const ChartSection: React.FC<ChartSectionProps> = ({ records }) => {
             itemStyle: { color: '#1890ff' },
             lineStyle: { width: 2 },
             symbol: 'circle',
+            symbolSize: 6
+          },
+          {
+            name: '完成次数',
+            type: 'line',
+            yAxisIndex: 1,
+            data: successCountData,
+            itemStyle: { color: '#52c41a' },
+            lineStyle: { width: 2 },
+            symbol: 'diamond',
             symbolSize: 6
           }
         ]

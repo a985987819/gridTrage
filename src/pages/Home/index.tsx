@@ -30,7 +30,8 @@ import {
   filterRecordsByDate,
   calculateStats,
   calculateYearlyStats, // 新增：按年统计
-  formatDate
+  formatDate,
+  calculateRealizedRevenue // 新增：已实现营收计算
 } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
 
@@ -43,8 +44,8 @@ const Home: React.FC = () => {
   // 状态管理
   const [allRecords, setAllRecords] = useState<TradeRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<TradeRecord[]>([]);
-  // 移除 day 类型，只保留 year/month
-  const [filterType, setFilterType] = useState<'year' | 'month'>('month');
+  // 支持更多筛选类型
+  const [filterType, setFilterType] = useState<'year' | 'month' | 'week'>('month');
   const [showStockModal, setShowStockModal] = useState(false);
   const [totalProfit, setTotalProfit] = useState('0.00');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -87,7 +88,7 @@ const Home: React.FC = () => {
   }, []);
 
   // 筛选日期变更（修复按年查看响应）
-  const handleDateSelect = (type: 'year' | 'month', date: Date) => {
+  const handleDateSelect = (type: 'year' | 'month' | 'week', date: Date) => {
     setFilterType(type);
     setSelectedDate(date);
 
@@ -100,6 +101,7 @@ const Home: React.FC = () => {
       setYearlyStats(stats);
     }
   };
+
   // ========== 新增：导入/导出事件 ==========
   // 触发导出
   const handleExport = () => {
@@ -133,10 +135,12 @@ const Home: React.FC = () => {
     // 清空文件选择
     e.target.value = '';
   };
+
   // 导出 Excel
   const handleExportExcel = () => {
     exportRecordsToExcel();
   };
+
   // 手动保存并去重
   const handleSaveDeduplicate = () => {
     saveRecordsToLocalStorage(allRecords);
@@ -169,18 +173,32 @@ const Home: React.FC = () => {
 
   // 处理状态变更（记录完成日期）
   const handleStatusChange = (
-    recordId: number,
+    recordId: number | string, // Updated to support both number and string IDs
     newStatus: '未完成' | '已完成',
-    completeDate: string
+    completeDate: string,
+    completedAmount?: number,
+    nextPurchasePrice?: string,
+    nextExpectedShares?: number
   ) => {
     try {
       const updatedRecords = allRecords.map(record => {
         if (record.id === recordId) {
-          return {
+          let updatedRecord = {
             ...record,
             status: newStatus,
-            completeDate: newStatus === '已完成' ? completeDate : ''
+            completeDate: newStatus === '已完成' ? completeDate : '',
+            completedAmount: completedAmount ?? record.buyAmount // 更新完成数量
           };
+
+          // 如果提供了下一次购买的信息，更新记录
+          if (nextPurchasePrice !== undefined) {
+            updatedRecord.nextPurchasePrice = nextPurchasePrice;
+          }
+          if (nextExpectedShares !== undefined) {
+            updatedRecord.nextExpectedShares = nextExpectedShares;
+          }
+
+          return updatedRecord;
         }
         return record;
       });
@@ -188,7 +206,7 @@ const Home: React.FC = () => {
       setAllRecords(updatedRecords);
       const filtered = filterRecordsByDate(updatedRecords, filterType, selectedDate);
       setFilteredRecords(filtered);
-      saveTradeRecords(updatedRecords);
+      saveRecordsToLocalStorage(updatedRecords);
 
       // 更新总营收
       const { profit } = calculateStats(updatedRecords);
@@ -200,13 +218,12 @@ const Home: React.FC = () => {
         setYearlyStats(stats);
       }
 
-      // 操作成功提示
-      message.success({
+      Modal.success({
         title: '操作成功',
         content: `交易状态已更新为「${newStatus}」！`,
       });
     } catch (error) {
-      message.error({
+      Modal.error({
         title: '操作失败',
         content: '交易状态更新失败，请重试！',
       });
@@ -214,7 +231,7 @@ const Home: React.FC = () => {
   };
 
   // 处理删除记录
-  const handleDeleteRecord = (recordId: number) => {
+  const handleDeleteRecord = (recordId: number | string) => { // Updated to support both number and string IDs
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除这条交易记录吗？此操作不可撤销！',
@@ -240,8 +257,8 @@ const Home: React.FC = () => {
     });
   };
 
-  // 切换筛选类型（移除 day 选项）
-  const switchFilterType = (type: 'year' | 'month') => {
+  // 切换筛选类型（支持 week）
+  const switchFilterType = (type: 'year' | 'month' | 'week') => {
     setFilterType(type);
     const filtered = filterRecordsByDate(allRecords, type, selectedDate);
     setFilteredRecords(filtered);
@@ -362,6 +379,21 @@ const Home: React.FC = () => {
             onDeleteRecord={handleDeleteRecord}
           />
 
+          {/* 已实现营收统计 */}
+          <Card
+            title="统计汇总"
+            style={{ marginTop: 24, textAlign: 'right' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Title level={4} style={{ margin: 0, color: '#52c41a' }}>
+                已实现总营收：¥ {calculateRealizedRevenue(allRecords)}
+              </Title>
+              <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+                筛选期已实现营收：¥ {calculateRealizedRevenue(filteredRecords)}
+              </Title>
+            </div>
+          </Card>
+
           {/* 统计卡片 */}
           <StatCards records={filteredRecords} />
 
@@ -370,10 +402,16 @@ const Home: React.FC = () => {
 
           <Divider />
 
-
-          {/* 筛选类型切换（移除按日查看按钮）+ 回到今日按钮 */}
+          {/* 筛选类型切换（支持周查看） */}
           <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
+              <Button
+                type={filterType === 'week' ? 'primary' : 'default'}
+                onClick={() => switchFilterType('week')}
+                style={{ marginRight: 8 }}
+              >
+                本周查看
+              </Button>
               <Button
                 type={filterType === 'year' ? 'primary' : 'default'}
                 onClick={() => switchFilterType('year')}
@@ -389,15 +427,7 @@ const Home: React.FC = () => {
               </Button>
             </div>
           </div>
-          {/* 总营收统计 */}
-          <Card
-            title="累计统计"
-            style={{ marginTop: 24, textAlign: 'right' }}
-          >
-            <Title level={4} style={{ margin: 0, color: '#52c41a' }}>
-              累计已实现总营收：¥ {totalProfit}
-            </Title>
-          </Card>
+
           {/* 日历选择器 */}
           <CalendarPicker
             records={allRecords}
