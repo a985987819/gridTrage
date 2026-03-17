@@ -8,7 +8,8 @@ import {
   exportRecordsToJSON,
   importRecordsFromJSON,
   loadDefaultRecords,
-  exportRecordsToExcel
+  exportRecordsToExcel,
+  importRecordsFromExcel
 } from '../../utils/dataHandler';
 import {
   DashboardOutlined,
@@ -121,7 +122,16 @@ const Home: React.FC = () => {
     if (!file) return;
 
     // 导入数据
-    const success = await importRecordsFromJSON(file);
+    let success = false;
+    if (file.name.endsWith('.json')) {
+      success = await importRecordsFromJSON(file);
+    } else if (file.name.match(/\.xlsx$|\.xls$/)) {
+      success = await importRecordsFromExcel(file);
+    } else {
+      message.error('不支持的文件格式，请上传 .json 或 .xlsx 文件！');
+      return;
+    }
+
     if (success) {
       // 重新加载数据
       const updatedRecords = getLocalStorageRecords();
@@ -336,7 +346,7 @@ const Home: React.FC = () => {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json"
+              accept=".json,.xlsx,.xls"
               onChange={handleFileChange}
               style={{ display: 'none' }}
             />

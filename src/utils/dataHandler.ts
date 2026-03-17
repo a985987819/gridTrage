@@ -42,6 +42,100 @@ export const exportRecordsToExcel = () => {
   alert('Excel 导出成功！');
 };
 
+/**
+ * 导入 Excel 文件并合并去重
+ * @param file 上传的 Excel 文件
+ */
+export const importRecordsFromExcel = async (file: File): Promise<boolean> => {
+  try {
+    // 校验文件类型
+    if (!file.name.match(/\.xlsx$|\.xls$/)) {
+      alert('请上传 Excel 格式的文件！');
+      return false;
+    }
+
+    // 读取文件内容
+    const fileData = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsArrayBuffer(file);
+    });
+
+    // 解析 Excel
+    const workbook = XLSX.read(fileData, { type: 'array', cellDates: true });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+    if (!Array.isArray(jsonData)) {
+      alert('Excel 解析失败，内容必须是列表格式！');
+      return false;
+    }
+
+    // 转换数据格式
+    const importedRecords: TradeRecord[] = jsonData.map((row, index) => {
+      // 处理日期
+      let dateStr = '';
+      if (row['日期'] instanceof Date) {
+        // 如果是 Date 对象，转为 YYYY-MM-DD
+        const d = row['日期'];
+        dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      } else if (typeof row['日期'] === 'string') {
+        // 尝试解析字符串日期 (2026/1/28 -> 2026-01-28)
+        dateStr = row['日期'].replace(/\//g, '-');
+      } else {
+        // 默认当天
+        dateStr = new Date().toISOString().split('T')[0];
+      }
+
+      // 处理完成日期
+      let completeDateStr = '';
+      if (row['卖出日期']) {
+        if (row['卖出日期'] instanceof Date) {
+          const d = row['卖出日期'];
+          completeDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        } else if (typeof row['卖出日期'] === 'string') {
+          completeDateStr = row['卖出日期'].replace(/\//g, '-');
+        }
+      }
+
+      // 状态判断：如果有卖出日期或 "完成" 字段为 1，则为已完成
+      const isCompleted = completeDateStr !== '' || row['完成'] == 1;
+
+      return {
+        id: row['ID'] || Date.now() + index + Math.random(), // 优先使用 ID 字段，否则生成唯一 ID
+        stockName: row['股票'] || row['股票名称'] || '未知股票',
+        date: dateStr,
+        timestamp: new Date(dateStr).getTime(),
+        buyPrice: String(row['买入价'] || 0),
+        buyAmount: Number(row['买入份额'] || row['买入数量'] || 0),
+        targetPrice: String(row['目标售价'] || row['目标价'] || 0),
+        expectedProfit: String(row['预期盈利'] || 0),
+        status: isCompleted ? '已完成' : '未完成',
+        completeDate: completeDateStr,
+        completedAmount: Number(row['实现份数'] || row['completedAmount'] || (isCompleted ? (row['买入份额'] || row['买入数量']) : 0)),
+        nextPurchasePrice: row['nextPurchasePrice'],
+        nextExpectedShares: row['nextExpectedShares']
+      };
+    });
+
+    // 获取现有数据并合并去重
+    const currentRecords = getLocalStorageRecords();
+    const mergedRecords = deduplicateRecords([...currentRecords, ...importedRecords]);
+
+    // 保存到 localStorage
+    saveRecordsToLocalStorage(mergedRecords);
+
+    alert(`导入成功！共解析 ${importedRecords.length} 条记录，去重后总记录数：${mergedRecords.length}`);
+    return true;
+  } catch (error) {
+    console.error('Excel 导入失败：', error);
+    alert(`Excel 导入失败：${(error as Error).message}`);
+    return false;
+  }
+};
+
 
 /**
  * 初始化数据（为旧数据补充 completedAmount 和其他新字段）
