@@ -9,7 +9,7 @@ const STORAGE_KEYS = {
 };
 
 // 初始化默认数据
-const DEFAULT_STOCK_NAMES: StockNameList = ['柳工', '安道麦', '奥佳华', '三一重工'];
+const DEFAULT_STOCK_NAMES: StockNameList = ['柳工', '三一重工', '安道麦A', '奥佳华'];
 
 // 获取交易记录
 export const getTradeRecords = (): TradeRecord[] => {

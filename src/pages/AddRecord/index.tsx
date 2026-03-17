@@ -1,7 +1,7 @@
 // src/pages/AddRecord/index.tsx
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // 替换 Link 为 useNavigate
-import { Layout, Form, Input, Select, Button, Typography, Card, Divider, Modal, message } from 'antd';
+import { useNavigate } from 'react-router-dom';
+import { Layout, Form, Input, Select, Button, Typography, Card, Divider, Modal, message, InputNumber } from 'antd';
 import { saveRecordsToLocalStorage, getLocalStorageRecords } from '../../utils/dataHandler';
 import {
   ArrowLeftOutlined,
@@ -20,33 +20,50 @@ import { formatDate } from '../../utils/dateUtils';
 import { TradeRecord } from '../../types';
 
 const { Header, Content, Footer } = Layout;
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
+
+// 股票目标涨幅配置
+const STOCK_PRICE_CONFIG: { [key: string]: number } = {
+  '柳工': 0.47,
+  '三一重工': 10.07,
+  '安道麦A': 0.27,
+  '奥佳华': 0.27
+};
 
 // 表单类型定义
 interface AddRecordForm {
   stockName: string;
   buyPrice: number;
   buyAmount: number;
-  targetProfit: number;
+  targetPrice: number;
 }
 
 const AddRecord: React.FC = () => {
-  const navigate = useNavigate(); // 使用 useNavigate 进行路由跳转
+  const navigate = useNavigate();
   const [form] = Form.useForm<AddRecordForm>();
   const [stockNames, setStockNames] = useState<string[]>([]);
   const [showStockModal, setShowStockModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [hopeProfit, setHopeProfit] = useState(0);
-  useEffect(() => {
-    const buyAmount = form.getFieldValue('buyAmount');
-    const targetProfit = form.getFieldValue('targetProfit');
-    console.log(`进来了1123`);
+  const [selectedStock, setSelectedStock] = useState<string>('');
+  const [calculatedTargetPrice, setCalculatedTargetPrice] = useState<number | null>(null);
+  const [expectedProfit, setExpectedProfit] = useState<string>('0.00');
 
-    if (buyAmount && targetProfit) {
-      setHopeProfit((targetProfit * buyAmount - 8).toFixed(2));
+  // 获取股票的默认目标涨幅
+  const getStockConfig = (stockName: string): number => {
+    return STOCK_PRICE_CONFIG[stockName] || 0.47;
+  };
+
+  // 计算目标挂单价和预计盈利
+  const calculateValues = (buyPrice: number, buyAmount: number, stockName: string) => {
+    if (buyPrice && buyAmount && stockName) {
+      const targetProfit = getStockConfig(stockName);
+      const targetPrice = (buyPrice + targetProfit).toFixed(2);
+      const profit = ((parseFloat(targetPrice) - buyPrice) * buyAmount - 8).toFixed(2);
+      setCalculatedTargetPrice(parseFloat(targetPrice));
+      setExpectedProfit(profit);
     }
-  }, [form.getFieldValue('buyAmount'), form.getFieldValue('targetProfit')])
+  };
 
   // 初始化股票列表
   useEffect(() => {
@@ -54,14 +71,21 @@ const AddRecord: React.FC = () => {
     setStockNames(names);
     if (names.length) {
       form.setFieldsValue({ stockName: names[0] });
+      setSelectedStock(names[0]);
     }
-
-    // 设置默认值
     form.setFieldsValue({
-      buyAmount: 500,
-      targetProfit: 0.47
+      buyAmount: 500
     });
   }, [form]);
+
+  // 当选择股票时，自动计算目标挂单价
+  useEffect(() => {
+    if (selectedStock) {
+      const buyPrice = form.getFieldValue('buyPrice');
+      const buyAmount = form.getFieldValue('buyAmount');
+      calculateValues(buyPrice, buyAmount, selectedStock);
+    }
+  }, [selectedStock]);
 
   // 刷新股票列表
   const refreshStockList = () => {
@@ -76,32 +100,29 @@ const AddRecord: React.FC = () => {
       const values = await form.validateFields();
 
       const buyPrice = Number(values.buyPrice);
-      const targetProfit = Number(values.targetProfit);
       const buyAmount = Number(values.buyAmount);
+      const targetPrice = Number(values.targetPrice);
 
-      if (isNaN(buyPrice) || isNaN(targetProfit) || isNaN(buyAmount)) {
+      if (isNaN(buyPrice) || isNaN(buyAmount) || isNaN(targetPrice)) {
         Modal.error({ title: '输入错误', content: '请输入有效的数字！' });
         setLoading(false);
         return;
       }
 
-      const targetPrice = (buyPrice + targetProfit).toFixed(2);
-      const expectedProfit = (
-        (parseFloat(targetPrice) - buyPrice) * buyAmount - 8
-      ).toFixed(2);
+      const profit = ((targetPrice - buyPrice) * buyAmount - 8).toFixed(2);
 
-      const newRecord = {
+      const newRecord: TradeRecord = {
         id: Date.now(),
         stockName: values.stockName,
         date: formatDate(new Date()),
         timestamp: new Date().getTime(),
         buyPrice: buyPrice.toFixed(2),
         buyAmount: buyAmount,
-        targetPrice,
-        expectedProfit,
+        targetPrice: targetPrice.toFixed(2),
+        expectedProfit: profit,
         status: '未完成',
         completeDate: '',
-        completedAmount: 0 // 新增：默认完成数量为0
+        completedAmount: 0
       };
 
       const currentRecords = getLocalStorageRecords();
@@ -111,20 +132,15 @@ const AddRecord: React.FC = () => {
       form.setFieldsValue({
         buyPrice: undefined,
         buyAmount: 500,
-        targetProfit: 0.47
+        targetPrice: undefined
       });
+      setCalculatedTargetPrice(null);
+      setExpectedProfit('0.00');
 
-      message.success({
-        title: '添加成功',
-        content: '交易记录已保存！',
-        // onOk: () => navigate('/')
-      });
+      message.success('交易记录已保存！');
     } catch (error) {
       console.error('添加记录失败:', error);
-      message.error({
-        title: '添加失败',
-        content: '交易记录保存失败，请重试！',
-      });
+      message.error('交易记录保存失败，请重试！');
     } finally {
       setLoading(false);
     }
@@ -167,6 +183,7 @@ const AddRecord: React.FC = () => {
                   <Select
                     style={{ flex: 1, marginRight: 8 }}
                     placeholder="请选择股票名称"
+                    onChange={(value) => setSelectedStock(value)}
                   >
                     {stockNames.map(name => (
                       <Option key={name} value={name}>
@@ -192,10 +209,14 @@ const AddRecord: React.FC = () => {
                   { required: true, message: '请输入买入价！' },
                 ]}
               >
-                <Input
-                  type="number"
+                <InputNumber
+                  style={{ width: '100%' }}
                   step="0.01"
                   placeholder="例如：10.01"
+                  onChange={(value) => {
+                    const buyAmount = form.getFieldValue('buyAmount') || 500;
+                    calculateValues(value, buyAmount, selectedStock);
+                  }}
                 />
               </Form.Item>
 
@@ -206,29 +227,56 @@ const AddRecord: React.FC = () => {
                   { required: true, message: '请输入买入数量！' },
                 ]}
               >
-                <Input
-                  type="number"
-                  step="100"
-                  min="100"
+                <InputNumber
+                  style={{ width: '100%' }}
+                  step={100}
+                  min={100}
+                  onChange={(value) => {
+                    const buyPrice = form.getFieldValue('buyPrice');
+                    calculateValues(buyPrice, value, selectedStock);
+                  }}
                 />
               </Form.Item>
 
               <Form.Item
-                name="targetProfit"
-                label="目标涨幅 (元)"
+                name="targetPrice"
+                label={`目标挂单价 (元) - ${selectedStock ? `柳工+0.47,三一重工+1.07,安道麦A/奥佳华+0.27` : '请先选择股票'}`}
                 rules={[
-                  { required: true, message: '请输入目标涨幅！' },
-                  { type: 'number', min: 0.01, message: '目标涨幅必须大于0！' }
+                  { required: true, message: '请输入目标挂单价！' },
                 ]}
               >
-                <Input
-                  type="number"
+                <InputNumber
+                  style={{ width: '100%' }}
                   step="0.01"
+                  placeholder={calculatedTargetPrice ? `自动计算: ${calculatedTargetPrice}` : '请输入目标挂单价'}
+                  onChange={(value) => {
+                    setCalculatedTargetPrice(value);
+                    const buyPrice = form.getFieldValue('buyPrice');
+                    const buyAmount = form.getFieldValue('buyAmount') || 500;
+                    if (value && buyPrice && buyAmount) {
+                      const profit = ((value - buyPrice) * buyAmount).toFixed(2);
+                      setExpectedProfit(profit);
+                    }
+                  }}
                 />
               </Form.Item>
-              <span style={{ color: '#ef5c53', marginBottom: '20px' }}>
-                预计营收：<span style={{ color: '#1890ff' }}>{hopeProfit}</span>元
-              </span>
+
+              <div style={{
+                marginBottom: 20,
+                padding: '12px',
+                background: '#f6ffed',
+                border: '1px solid #b7eb8f',
+                borderRadius: '4px'
+              }}>
+                <Text strong>预计营收：</Text>
+                <Text style={{ fontSize: 18, color: '#52c41a', marginLeft: 8 }}>
+                  ¥{expectedProfit}
+                </Text>
+                <Text type="secondary" style={{ marginLeft: 16, fontSize: 12 }}>
+                  (目标价 - 买入价) × 买入数量
+                </Text>
+              </div>
+
               <Form.Item>
                 <Button
                   type="primary"
