@@ -32,6 +32,16 @@ export interface PriceFreq {
   bins: PriceFreqBin[];
 }
 
+/** 单个时间窗口的价格分布频率 (用于多窗口对比) */
+export interface PriceFreqWindow {
+  /** 窗口标签, 例如 "过去8年" */
+  label: string;
+  /** 总样本天数 */
+  totalDays: number;
+  /** 0.1元一档的分布数据 */
+  bins: PriceFreqBin[];
+}
+
 /** 股票配置 */
 export interface StockConfig {
   stockName: string;
@@ -47,6 +57,8 @@ export interface StockConfig {
   priceStats?: PriceStats;
   /** 价格分布频率 (0.1元一档), 用于价格分布柱状图 */
   priceFreq?: PriceFreq;
+  /** 多时间窗口价格分布频率 (8年/3年/1年), 用于分布迁移对比 */
+  priceFreqWindows?: PriceFreqWindow[];
 }
 
 /** 持仓 */
@@ -119,10 +131,22 @@ export interface BuyPlan {
   cost: number;
 }
 
-/** 卖出规划 */
+/** 卖出规划 (一个卖单可关联多个买单) */
 export interface SellPlan {
-  pos: Position;
-  profit: number;
+  /** 卖出价 (统一卖价) */
+  sellPrice: number;
+  /** 关联的买单持仓列表 */
+  positions: Position[];
+  /** 关联买单总股数 */
+  totalShares: number;
+  /** 关联买单总成本 */
+  totalCost: number;
+  /** 总卖出金额 (totalShares * sellPrice) */
+  totalSellValue: number;
+  /** 总手续费 (佣金 + 印花税) */
+  totalFees: number;
+  /** 合并预期盈利 */
+  totalProfit: number;
 }
 
 /** Toast 类型 */

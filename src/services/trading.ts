@@ -208,26 +208,99 @@ export function buildBuyPlan(stock: StockData): BuyPlan[] {
   return plans;
 }
 
-/** 计算自动规划卖出列表 */
+/** 计算自动规划卖出列表 (按目标卖价分组, 一个卖单可关联多个买单) */
 export function buildSellPlan(stock: StockData): SellPlan[] {
   const cfg = stock.config;
   const lastClose = stock.lastClosePrice;
-  const sorted = [...stock.positions].sort((a, b) => a.targetSellPrice - b.targetSellPrice);
-  return sorted
-    .filter((p) => {
-      // ±10% 限制: 卖出价不高于收盘价 * 1.1
-      if (lastClose && p.targetSellPrice > lastClose * 1.1) return false;
-      return true;
-    })
-    .slice(0, 5)
-    .map((p) => {
-      const sellValue = p.shares * p.targetSellPrice;
-      const sellComm = sellValue * cfg.commissionRate;
-      const stamp = sellValue * cfg.stampDutyRate;
-      const net = sellValue - sellComm - stamp;
-      const profit = net - p.buyCost;
-      return { pos: p, profit };
+  const feeRate = cfg.commissionRate + cfg.stampDutyRate;
+
+  // 按目标卖价分组 (round to 2 decimals 避免浮点误差)
+  const groups = new Map<number, Position[]>();
+  for (const p of stock.positions) {
+    const key = Number(p.targetSellPrice.toFixed(2));
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(p);
+  }
+
+  const sortedGroups = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  const plans: SellPlan[] = [];
+  for (const [sellPrice, positions] of sortedGroups) {
+    // ±10% 限制: 卖出价不高于收盘价 * 1.1
+    if (lastClose && sellPrice > lastClose * 1.1) continue;
+    const totalShares = positions.reduce((s, p) => s + p.shares, 0);
+    const totalCost = positions.reduce((s, p) => s + p.buyCost, 0);
+    const totalSellValue = totalShares * sellPrice;
+    const totalFees = totalSellValue * feeRate;
+    const totalProfit = totalSellValue - totalFees - totalCost;
+    plans.push({
+      sellPrice,
+      positions: [...positions].sort((a, b) => a.id - b.id),
+      totalShares,
+      totalCost,
+      totalSellValue,
+      totalFees,
+      totalProfit,
     });
+    if (plans.length >= 5) break;
+  }
+  return plans;
+}
+
+/** 主动关联: 把指定买单绑定到某卖价; 原本挂在此卖价但未选中的买单回归默认卖价 */
+export function linkPositionsToSell(
+  stock: StockData,
+  sellPrice: number,
+  positionIds: number[],
+): StockData {
+  const cfg = stock.config;
+  const newSellPrice = forceSellPrice(sellPrice);
+  const idSet = new Set(positionIds);
+  const positions = stock.positions.map((p) => {
+    if (idSet.has(p.id)) {
+      return { ...p, targetSellPrice: newSellPrice };
+    }
+    // 之前挂在此卖价但被移除 → 回归默认卖价
+    if (Math.abs(p.targetSellPrice - newSellPrice) < 0.001) {
+      return { ...p, targetSellPrice: calcSellPrice(p.buyPrice, cfg) };
+    }
+    return p;
+  });
+  return { ...stock, positions, _editingPosId: undefined };
+}
+
+/** 批量卖出: 按 sellPrice 一次性卖出关联的全部持仓 */
+export function executeBatchSell(
+  stock: StockData,
+  posIds: number[],
+  sellPrice: number,
+  date: string,
+): { stock: StockData; toast: { type: 'success' | 'error' | 'warn'; msg: string } } {
+  if (posIds.length === 0) {
+    return { stock, toast: { type: 'error', msg: '没有可卖出的持仓' } };
+  }
+  let cur = stock;
+  let totalProfit = 0;
+  let count = 0;
+  for (const id of posIds) {
+    const pos = cur.positions.find((p) => p.id === id);
+    if (!pos) continue;
+    const result = executeSell(cur, id, sellPrice, pos.lots, date);
+    if (result.toast.type === 'error') continue;
+    cur = result.stock;
+    const last = cur.completedTrades[cur.completedTrades.length - 1];
+    if (last) totalProfit += last.profit;
+    count++;
+  }
+  if (count === 0) {
+    return { stock, toast: { type: 'error', msg: '批量卖出失败' } };
+  }
+  return {
+    stock: cur,
+    toast: {
+      type: 'success',
+      msg: `批量卖出 ${count}笔 @${sellPrice}元, 盈利${totalProfit.toFixed(2)}`,
+    },
+  };
 }
 
 /** 计算今日买入挂单 (基于昨日收盘价) */
@@ -261,29 +334,6 @@ export function buildTodayBuyOrders(stock: StockData): BuyPlan[] {
     orders.push({ level: lv, price, suggest, cost });
   }
   return orders;
-}
-
-/** 计算今日卖出挂单 */
-export function buildTodaySellOrders(stock: StockData): SellPlan[] {
-  const cfg = stock.config;
-  const lastClose = stock.lastClosePrice;
-  if (!lastClose) return [];
-
-  const orders: SellPlan[] = [];
-  const positions = [...stock.positions].sort((a, b) => a.targetSellPrice - b.targetSellPrice);
-  for (const p of positions) {
-    if (p.targetSellPrice > lastClose) {
-      // ±10% 限制
-      if (p.targetSellPrice > lastClose * 1.1) continue;
-      const sellValue = p.shares * p.targetSellPrice;
-      const sellComm = sellValue * cfg.commissionRate;
-      const stamp = sellValue * cfg.stampDutyRate;
-      const net = sellValue - sellComm - stamp;
-      const profit = net - p.buyCost;
-      orders.push({ pos: p, profit });
-    }
-  }
-  return orders.slice(0, 5);
 }
 
 /** 删除持仓 */

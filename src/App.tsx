@@ -5,6 +5,8 @@ import { loadState, saveState, createFreshStockData } from './services/storage';
 import {
   executeBuy,
   executeSell,
+  executeBatchSell,
+  linkPositionsToSell,
   deletePosition,
   savePositionEdit,
   deleteTrade,
@@ -53,6 +55,8 @@ export default function App() {
   );
   // Excel 导入用的隐藏 file input
   const excelInputRef = useRef<HTMLInputElement>(null);
+  // 卖单 hover 时高亮的关联买单ID集合
+  const [highlightedPosIds, setHighlightedPosIds] = useState<number[]>([]);
 
   // 暴露给 window 以便调试
   useEffect(() => {
@@ -182,19 +186,6 @@ export default function App() {
     if (val) showToast(`已设置昨日收盘价: ${val}`, 'success');
   };
 
-  /** 高亮持仓行 */
-  const highlightPosition = (posId: number) => {
-    const el = document.getElementById(`pos-row-${posId}`);
-    if (el) {
-      el.classList.remove('tr-flash');
-      // 触发动画重放
-      void el.offsetWidth;
-      el.classList.add('tr-flash');
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      showToast(`已高亮买单 #${posId}`, 'info');
-    }
-  };
-
   /** 高亮卖单规划项 */
   const highlightSellPlan = (posId: number) => {
     const el = document.getElementById(`sell-plan-item-${posId}`);
@@ -204,6 +195,36 @@ export default function App() {
       el.classList.add('tr-flash');
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  };
+
+  /** 卖单 hover: 高亮关联的买入项 */
+  const handleHoverSell = (posIds: number[]) => {
+    setHighlightedPosIds(posIds);
+  };
+
+  /** 卖单 hover 结束: 清除高亮 */
+  const handleHoverSellEnd = () => {
+    setHighlightedPosIds([]);
+  };
+
+  /** 关联买单到卖价 (支持多选, 数量/盈利合并) */
+  const handleLinkSell = (sellPrice: number, positionIds: number[]) => {
+    updateCurrentStock((prev) => linkPositionsToSell(prev, sellPrice, positionIds));
+    showToast(
+      `已关联 ${positionIds.length} 笔买单到 ${sellPrice.toFixed(2)}元卖价`,
+      'success',
+    );
+  };
+
+  /** 批量卖出: 一次性卖出此卖价关联的全部持仓 */
+  const handleBatchSell = (posIds: number[], sellPrice: number) => {
+    const result = executeBatchSell(stock, posIds, sellPrice, todayStr());
+    if (result.toast.type === 'error') {
+      showToast(result.toast.msg, 'error');
+      return;
+    }
+    updateCurrentStock(() => result.stock);
+    showToast(result.toast.msg, 'success');
   };
 
   /** 切换配置面板显示 */
@@ -416,13 +437,16 @@ export default function App() {
       <PlanGrid
         stock={stock}
         onQuickBuy={quickBuy}
-        onQuickSell={quickSell}
-        onHighlightPosition={highlightPosition}
+        onHoverSell={handleHoverSell}
+        onHoverSellEnd={handleHoverSellEnd}
+        onLinkSell={handleLinkSell}
+        onBatchSell={handleBatchSell}
       />
       <PositionsTable
         stock={stock}
         onQuickSell={quickSell}
         onHighlightSellPlan={highlightSellPlan}
+        highlightedPosIds={highlightedPosIds}
         onStartEdit={(id) =>
           updateCurrentStock((prev) => ({ ...prev, _editingPosId: id }))
         }

@@ -77,24 +77,24 @@ export function ZoneAnalysis({ stock, onLastCloseChange }: ZoneAnalysisProps) {
       <div className="zone-bar-wrap my-4 mb-2">
         <ZoneChart priceStats={ps} config={cfg} lastClose={lastClose} />
       </div>
-      {cfg.priceFreq && (
+      {cfg.priceFreqWindows && cfg.priceFreqWindows.length > 0 && (
         <div
           id="price-freq-section"
           className="mt-4 pt-3 border-t border-dashed border-[#e0e0e0]"
         >
           <div className="flex justify-between items-center mb-1">
             <h4 className="text-[13px] font-semibold text-[#2c3e50]">
-              价格分布频率 (1元一档)
+              价格分布频率 (0.1元一档 · 三时间窗口对比)
             </h4>
             <span className="badge" id="price-freq-badge">
-              历史共 {cfg.priceFreq.totalDays} 天
+              8年/3年/1年
             </span>
           </div>
           <div className="note tip" id="price-freq-note">
-            柱体颜色按档位从低到高(冷→暖)渐变; 输入昨日收盘价后, 当前所在档位会高亮描边并显示标记线,
-            可直观看到当前价格落在历史最活跃区间还是冷门区间。
+            对比过去8年 / 3年 / 1年的收盘价分布, 观察价格中枢迁移趋势。
+            点击图例可切换显示某窗口; 输入昨日收盘价后, 虚线标注当前价所在档位。
           </div>
-          <PriceFreqChart priceFreq={cfg.priceFreq} lastClose={lastClose} />
+          <PriceFreqChart windows={cfg.priceFreqWindows} lastClose={lastClose} />
         </div>
       )}
       <div className="zone-cards grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">

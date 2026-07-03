@@ -1,9 +1,24 @@
-import type { StockConfig } from '../types';
+import type { StockConfig, PriceFreqBin } from '../types';
 
 /**
  * 股票预设参数 (基准价、网格间距、价格统计等)
  * 修改配置时会被覆盖, 载入预设时使用最新值。
  */
+
+/** 由天数数组构建 0.1元一档的 bin 列表 (从 start 起, 每档 step 宽) */
+function buildFreqBins(start: number, step: number, counts: number[]): PriceFreqBin[] {
+  return counts.map((days, i) => {
+    const from = Number((start + i * step).toFixed(1));
+    const to = Number((from + step).toFixed(1));
+    return { from, to, days };
+  });
+}
+
+// 数据源: 柳工_000528_grid_trading_20260703.html (distRanges 5.6~13.4, 共79档)
+const DIST_8Y_COUNTS = [4, 6, 15, 22, 25, 56, 108, 74, 85, 74, 57, 75, 52, 37, 35, 31, 50, 64, 41, 47, 35, 59, 36, 35, 38, 26, 19, 15, 17, 14, 13, 21, 13, 19, 13, 15, 18, 16, 19, 40, 32, 19, 32, 23, 32, 25, 11, 11, 16, 20, 20, 14, 25, 26, 35, 18, 19, 22, 22, 23, 24, 15, 14, 25, 8, 11, 9, 8, 10, 14, 5, 4, 3, 2, 1, 0, 1, 1, 0];
+const DIST_3Y_COUNTS = [0, 0, 0, 0, 0, 1, 8, 16, 12, 11, 9, 12, 10, 2, 3, 2, 19, 8, 3, 9, 6, 11, 9, 13, 17, 5, 8, 4, 2, 4, 2, 2, 1, 3, 5, 4, 7, 10, 12, 20, 17, 12, 23, 10, 19, 13, 6, 9, 10, 12, 12, 8, 21, 22, 34, 15, 19, 18, 21, 20, 23, 14, 12, 23, 8, 8, 6, 7, 9, 13, 4, 4, 3, 2, 1, 0, 1, 1, 0];
+const DIST_1Y_COUNTS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 3, 0, 1, 2, 2, 2, 0, 2, 3, 1, 1, 1, 3, 5, 3, 5, 5, 2, 7, 10, 5, 7, 4, 7, 3, 1, 1, 2, 0, 5, 1, 9, 12, 18, 5, 8, 7, 9, 8, 11, 9, 8, 18, 5, 1, 2, 4, 3, 4, 1, 3, 2, 0, 0, 0, 0, 0, 0];
+
 export const STOCK_PRESETS: Record<string, StockConfig> = {
   liugong: {
     stockName: '柳工',
@@ -27,90 +42,13 @@ export const STOCK_PRESETS: Record<string, StockConfig> = {
       p90: 12.4,
       max: 13.38,
     },
-    // 价格分布频率 (0.1元一档) - 数据源: 柳工_000528_grid_trading_20260703.html
-    // 共 2039 个交易日 (历史全量), 档位 5.6~13.4 元 (跳过 13.1 无数据)
-    priceFreq: {
-      totalDays: 2039,
-      bins: [
-        { from: 5.6, to: 5.7, days: 4 },
-        { from: 5.7, to: 5.8, days: 6 },
-        { from: 5.8, to: 5.9, days: 15 },
-        { from: 5.9, to: 6.0, days: 22 },
-        { from: 6.0, to: 6.1, days: 25 },
-        { from: 6.1, to: 6.2, days: 56 },
-        { from: 6.2, to: 6.3, days: 108 },
-        { from: 6.3, to: 6.4, days: 74 },
-        { from: 6.4, to: 6.5, days: 85 },
-        { from: 6.5, to: 6.6, days: 74 },
-        { from: 6.6, to: 6.7, days: 57 },
-        { from: 6.7, to: 6.8, days: 75 },
-        { from: 6.8, to: 6.9, days: 52 },
-        { from: 6.9, to: 7.0, days: 37 },
-        { from: 7.0, to: 7.1, days: 35 },
-        { from: 7.1, to: 7.2, days: 31 },
-        { from: 7.2, to: 7.3, days: 50 },
-        { from: 7.3, to: 7.4, days: 64 },
-        { from: 7.4, to: 7.5, days: 41 },
-        { from: 7.5, to: 7.6, days: 47 },
-        { from: 7.6, to: 7.7, days: 35 },
-        { from: 7.7, to: 7.8, days: 59 },
-        { from: 7.8, to: 7.9, days: 36 },
-        { from: 7.9, to: 8.0, days: 35 },
-        { from: 8.0, to: 8.1, days: 38 },
-        { from: 8.1, to: 8.2, days: 26 },
-        { from: 8.2, to: 8.3, days: 19 },
-        { from: 8.3, to: 8.4, days: 15 },
-        { from: 8.4, to: 8.5, days: 17 },
-        { from: 8.5, to: 8.6, days: 14 },
-        { from: 8.6, to: 8.7, days: 13 },
-        { from: 8.7, to: 8.8, days: 21 },
-        { from: 8.8, to: 8.9, days: 13 },
-        { from: 8.9, to: 9.0, days: 19 },
-        { from: 9.0, to: 9.1, days: 13 },
-        { from: 9.1, to: 9.2, days: 15 },
-        { from: 9.2, to: 9.3, days: 18 },
-        { from: 9.3, to: 9.4, days: 16 },
-        { from: 9.4, to: 9.5, days: 19 },
-        { from: 9.5, to: 9.6, days: 40 },
-        { from: 9.6, to: 9.7, days: 32 },
-        { from: 9.7, to: 9.8, days: 19 },
-        { from: 9.8, to: 9.9, days: 32 },
-        { from: 9.9, to: 10.0, days: 23 },
-        { from: 10.0, to: 10.1, days: 32 },
-        { from: 10.1, to: 10.2, days: 25 },
-        { from: 10.2, to: 10.3, days: 11 },
-        { from: 10.3, to: 10.4, days: 11 },
-        { from: 10.4, to: 10.5, days: 16 },
-        { from: 10.5, to: 10.6, days: 20 },
-        { from: 10.6, to: 10.7, days: 20 },
-        { from: 10.7, to: 10.8, days: 14 },
-        { from: 10.8, to: 10.9, days: 25 },
-        { from: 10.9, to: 11.0, days: 26 },
-        { from: 11.0, to: 11.1, days: 35 },
-        { from: 11.1, to: 11.2, days: 18 },
-        { from: 11.2, to: 11.3, days: 19 },
-        { from: 11.3, to: 11.4, days: 22 },
-        { from: 11.4, to: 11.5, days: 22 },
-        { from: 11.5, to: 11.6, days: 23 },
-        { from: 11.6, to: 11.7, days: 24 },
-        { from: 11.7, to: 11.8, days: 15 },
-        { from: 11.8, to: 11.9, days: 14 },
-        { from: 11.9, to: 12.0, days: 25 },
-        { from: 12.0, to: 12.1, days: 8 },
-        { from: 12.1, to: 12.2, days: 11 },
-        { from: 12.2, to: 12.3, days: 9 },
-        { from: 12.3, to: 12.4, days: 8 },
-        { from: 12.4, to: 12.5, days: 10 },
-        { from: 12.5, to: 12.6, days: 14 },
-        { from: 12.6, to: 12.7, days: 5 },
-        { from: 12.7, to: 12.8, days: 4 },
-        { from: 12.8, to: 12.9, days: 3 },
-        { from: 12.9, to: 13.0, days: 2 },
-        { from: 13.0, to: 13.1, days: 1 },
-        { from: 13.2, to: 13.3, days: 1 },
-        { from: 13.3, to: 13.4, days: 1 },
-      ],
-    },
+    // 多时间窗口价格分布频率 (0.1元一档) - 数据源: 柳工_000528_grid_trading_20260703.html
+    // 对比 过去8年(2039天)/3年(730天)/1年(244天), 观察价格中枢迁移
+    priceFreqWindows: [
+      { label: '过去8年', totalDays: 2039, bins: buildFreqBins(5.6, 0.1, DIST_8Y_COUNTS) },
+      { label: '过去3年', totalDays: 730, bins: buildFreqBins(5.6, 0.1, DIST_3Y_COUNTS) },
+      { label: '过去1年', totalDays: 244, bins: buildFreqBins(5.6, 0.1, DIST_1Y_COUNTS) },
+    ],
   },
   sanyi: {
     stockName: '三一重工',

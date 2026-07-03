@@ -6,6 +6,7 @@ interface PositionsTableProps {
   stock: StockData;
   onQuickSell: (posId: number) => void;
   onHighlightSellPlan: (posId: number) => void;
+  highlightedPosIds: number[];
   onStartEdit: (id: number) => void;
   onCancelEdit: () => void;
   onSaveEdit: (
@@ -26,6 +27,7 @@ export function PositionsTable({
   stock,
   onQuickSell,
   onHighlightSellPlan,
+  highlightedPosIds,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
@@ -35,6 +37,7 @@ export function PositionsTable({
   const sorted = [...stock.positions].sort(
     (a, b) => a.targetSellPrice - b.targetSellPrice,
   );
+  const highlightSet = new Set(highlightedPosIds);
 
   return (
     <div className="card" id="positions-card">
@@ -45,7 +48,7 @@ export function PositionsTable({
         </span>
       </div>
       <div className="note tip">
-        单击任意持仓行可高亮对应的卖单规划 | 双击任意行进入编辑模式
+        悬停上方卖单可高亮关联买单 | 单击持仓行高亮对应卖单 | 双击任意行进入编辑模式
       </div>
       <div className="table-wrap" id="positions-table-wrap">
         <table className="data-table">
@@ -78,6 +81,7 @@ export function PositionsTable({
                 const net = sellValue - sellValue * (cfg.commissionRate + cfg.stampDutyRate);
                 const profit = net - p.buyCost;
                 const editing = stock._editingPosId === p.id;
+                const highlighted = highlightSet.has(p.id);
                 return (
                   <PositionRow
                     key={p.id}
@@ -85,6 +89,7 @@ export function PositionsTable({
                     net={net}
                     profit={profit}
                     editing={editing}
+                    highlighted={highlighted}
                     onQuickSell={onQuickSell}
                     onHighlightSellPlan={onHighlightSellPlan}
                     onStartEdit={onStartEdit}
@@ -107,6 +112,7 @@ interface PositionRowProps {
   net: number;
   profit: number;
   editing: boolean;
+  highlighted: boolean;
   onQuickSell: (posId: number) => void;
   onHighlightSellPlan: (posId: number) => void;
   onStartEdit: (id: number) => void;
@@ -129,6 +135,7 @@ function PositionRow({
   net,
   profit,
   editing,
+  highlighted,
   onQuickSell,
   onHighlightSellPlan,
   onStartEdit,
@@ -149,14 +156,16 @@ function PositionRow({
   }
   return (
     <tr
-      className="pos-row hover:bg-[#f0f7ff] cursor-pointer"
+      className={`pos-row hover:bg-[#f0f7ff] cursor-pointer ${
+        highlighted ? 'pos-row-highlighted bg-[#fff3cd]' : ''
+      }`}
       id={`pos-row-${pos.id}`}
       onClick={() => onHighlightSellPlan(pos.id)}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onStartEdit(pos.id);
       }}
-      title="单击高亮卖单规划 · 双击进入编辑"
+      title="单击高亮对应卖单 · 双击进入编辑"
     >
       <td>#{pos.id}</td>
       <td className="td-level">#{pos.gridLevel}</td>

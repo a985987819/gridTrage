@@ -1,6 +1,6 @@
 import type { AppData, SyncSummary } from '../types';
 import { SYNC_DATA_KEY, SYNC_HTTP_URL } from '../constants/presets';
-import { buildTodayBuyOrders, buildTodaySellOrders } from './trading';
+import { buildTodayBuyOrders, buildSellPlan } from './trading';
 import { todayStr } from '../utils/format';
 
 /**
@@ -237,13 +237,20 @@ export function buildSyncSummary(appData: AppData): SyncSummary {
         }))
       : [],
     todaySellOrders: lastClose
-      ? buildTodaySellOrders(stock).map((o) => ({
-          positionId: o.pos.id,
-          buyPrice: o.pos.buyPrice,
-          targetSellPrice: o.pos.targetSellPrice,
-          lots: o.pos.lots,
-          profit: Number(o.profit.toFixed(2)),
-        }))
+      ? buildSellPlan(stock).flatMap((g) =>
+          g.positions.map((p) => {
+            const sellValue = p.shares * g.sellPrice;
+            const fees = sellValue * (cfg.commissionRate + cfg.stampDutyRate);
+            const profit = sellValue - fees - p.buyCost;
+            return {
+              positionId: p.id,
+              buyPrice: p.buyPrice,
+              targetSellPrice: g.sellPrice,
+              lots: p.lots,
+              profit: Number(profit.toFixed(2)),
+            };
+          }),
+        )
       : [],
   };
 }

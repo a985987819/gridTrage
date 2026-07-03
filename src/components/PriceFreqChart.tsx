@@ -1,42 +1,20 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
-import type { PriceFreq } from '../types';
+import type { PriceFreqWindow } from '../types';
 import { fmt } from '../utils/format';
 
 interface PriceFreqChartProps {
-  priceFreq: PriceFreq;
+  windows: PriceFreqWindow[];
   lastClose: number | null;
 }
 
 /**
- * 价格分布频率柱状图 (0.1元一档)
- * - X 轴: 价格档位下界 (5.6, 5.7, ...)
- * - Y 轴: 天数
- * - 柱体颜色: 按价格档位连续渐变 (低价绿色 → 中价金色 → 高价红色)
- * - 当前价标记线: 输入昨日收盘价后高亮当前所在档位
+ * 多时间窗口价格分布频率对比 (0.1元一档)
+ * - 三条折线: 过去8年 / 过去3年 / 过去1年
+ * - 通过 legend 切换显示, 直观对比价格中枢迁移
+ * - 当前价标记线: 输入昨日收盘价后标注当前所在档位
  */
-
-/** 在两个 hex 颜色间线性插值, t ∈ [0,1] */
-function lerpColor(c1: string, c2: string, t: number): string {
-  const r1 = parseInt(c1.slice(1, 3), 16);
-  const g1 = parseInt(c1.slice(3, 5), 16);
-  const b1 = parseInt(c1.slice(5, 7), 16);
-  const r2 = parseInt(c2.slice(1, 3), 16);
-  const g2 = parseInt(c2.slice(3, 5), 16);
-  const b2 = parseInt(c2.slice(5, 7), 16);
-  const r = Math.round(r1 + (r2 - r1) * t);
-  const g = Math.round(g1 + (g2 - g1) * t);
-  const b = Math.round(b1 + (b2 - b1) * t);
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-}
-
-/** 按位置 t ∈ [0,1] 返回绿→金→红渐变色 */
-function gradientColor(t: number): string {
-  if (t < 0.5) return lerpColor('#7dc88f', '#f5c163', t * 2);
-  return lerpColor('#f5c163', '#e88a83', (t - 0.5) * 2);
-}
-
-export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps) {
+export function PriceFreqChart({ windows, lastClose }: PriceFreqChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
@@ -54,74 +32,92 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
 
   useEffect(() => {
     if (!chartInstance.current || !chartRef.current) return;
+    if (windows.length === 0) return;
 
-    const labels = pf.bins.map((b) => `${b.from}`);
-    const days = pf.bins.map((b) => b.days);
-    const total = pf.totalDays;
-    const binCount = pf.bins.length;
+    // 以第一个窗口的档位为 X 轴 (各窗口档位一致)
+    const baseBins = windows[0].bins;
+    const labels = baseBins.map((b) => `${b.from}`);
 
     // 找出当前价所在档位
     let activeBinIndex = -1;
     if (lastClose !== null && lastClose > 0) {
-      activeBinIndex = pf.bins.findIndex((b) => lastClose >= b.from && lastClose < b.to);
-      // 处理恰好等于上界的情况
+      activeBinIndex = baseBins.findIndex((b) => lastClose >= b.from && lastClose < b.to);
       if (activeBinIndex === -1) {
-        const last = pf.bins[pf.bins.length - 1];
-        if (lastClose >= last.to) activeBinIndex = pf.bins.length - 1;
-        else if (lastClose < pf.bins[0].from) activeBinIndex = 0;
+        const last = baseBins[baseBins.length - 1];
+        if (lastClose >= last.to) activeBinIndex = baseBins.length - 1;
+        else if (lastClose < baseBins[0].from) activeBinIndex = 0;
       }
     }
 
-    // 柱体样式: 按价格档位连续渐变 (绿→金→红), 当前价档位高亮描边
-    const itemStyles = pf.bins.map((_, i) => {
-      const t = binCount > 1 ? i / (binCount - 1) : 0;
-      const baseColor = gradientColor(t);
-      if (i === activeBinIndex) {
-        return {
-          color: baseColor,
-          borderColor: '#2c3e50',
-          borderWidth: 2,
-          borderRadius: [4, 4, 0, 0] as [number, number, number, number],
-        };
-      }
+    // 三条折线配色
+    const colors = ['#3b82f6', '#f5c163', '#e88a83'];
+
+    const series = windows.map((w, i) => {
+      const data = baseBins.map((_, idx) => {
+        const bin = w.bins[idx];
+        return bin ? bin.days : 0;
+      });
+      const isLast = i === windows.length - 1;
       return {
-        color: baseColor,
-        opacity: 0.75,
-        borderRadius: [4, 4, 0, 0] as [number, number, number, number],
+        name: w.label,
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        data,
+        lineStyle: { width: 2, color: colors[i % colors.length] },
+        itemStyle: { color: colors[i % colors.length] },
+        areaStyle: { opacity: 0.08 },
+        // 仅最后一条 series 携带当前价 markLine
+        markLine: isLast
+          ? {
+              symbol: 'none',
+              animation: false,
+              silent: true,
+              data:
+                activeBinIndex >= 0
+                  ? [
+                      {
+                        xAxis: activeBinIndex,
+                        label: {
+                          formatter: `当前 ${fmt(lastClose!)}元`,
+                          color: '#fff',
+                          backgroundColor: '#2c3e50',
+                          padding: [3, 8],
+                          borderRadius: 4,
+                          position: 'insideEndTop',
+                          fontSize: 11,
+                        },
+                        lineStyle: { color: '#2c3e50', width: 2, type: 'dashed' },
+                      },
+                    ]
+                  : [],
+            }
+          : undefined,
       };
     });
 
-    // 当前价 markLine (基于 x 轴类目下标)
-    const markLines: any[] = [];
-    if (activeBinIndex >= 0) {
-      markLines.push({
-        xAxis: activeBinIndex,
-        label: {
-          formatter: `当前 ${fmt(lastClose!)}元`,
-          color: '#fff',
-          backgroundColor: '#2c3e50',
-          padding: [3, 8],
-          borderRadius: 4,
-          position: 'insideEndTop',
-          fontSize: 11,
-        },
-        lineStyle: { color: '#2c3e50', width: 2, type: 'dashed' },
-      });
-    }
-
     const option: echarts.EChartsOption = {
-      grid: { left: 45, right: 30, top: 35, bottom: 50 },
+      grid: { left: 45, right: 30, top: 40, bottom: 55 },
+      legend: {
+        top: 4,
+        textStyle: { color: '#7f8c8d', fontSize: 11 },
+        itemWidth: 14,
+        itemHeight: 8,
+      },
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'shadow' },
+        axisPointer: { type: 'line' },
         formatter: (params: any) => {
-          const p = params[0];
-          if (!p) return '';
-          const idx = p.dataIndex;
-          const bin = pf.bins[idx];
-          const day = p.value as number;
-          const pct = total > 0 ? ((day / total) * 100).toFixed(1) : '0.0';
-          return `${bin.from}-${bin.to}元<br/>天数: <b>${day}</b>天<br/>占比: <b>${pct}%</b>`;
+          if (!params || params.length === 0) return '';
+          const idx = params[0].dataIndex;
+          const bin = baseBins[idx];
+          const lines = params.map((p: any) => {
+            const w = windows.find((w) => w.label === p.seriesName);
+            const total = w ? w.totalDays : 1;
+            const pct = total > 0 ? ((p.value / total) * 100).toFixed(1) : '0.0';
+            return `${p.marker}${p.seriesName}: <b>${p.value}</b>天 (${pct}%)`;
+          });
+          return `${bin.from}-${bin.to}元<br/>${lines.join('<br/>')}`;
         },
       },
       xAxis: {
@@ -130,7 +126,7 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
         axisLine: { lineStyle: { color: '#bdc3c7' } },
         axisTick: { show: true, length: 5, lineStyle: { color: '#bdc3c7' } },
         axisLabel: {
-          fontSize: 11,
+          fontSize: 10,
           color: '#7f8c8d',
           rotate: 45,
           interval: (index: number, value: string) => {
@@ -149,24 +145,12 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
         axisLabel: { color: '#7f8c8d', fontSize: 11 },
         splitLine: { lineStyle: { color: 'rgba(189,195,199,0.3)', type: 'dashed' } },
       },
-      series: [
-        {
-          type: 'bar',
-          data: days.map((v, i) => ({ value: v, itemStyle: itemStyles[i] })),
-          barWidth: '70%',
-          markLine: {
-            symbol: 'none',
-            animation: false,
-            silent: true,
-            data: markLines,
-          },
-        },
-      ],
+      series: series as any,
     };
 
     chartInstance.current.setOption(option, true);
     chartInstance.current.resize();
-  }, [pf, lastClose]);
+  }, [windows, lastClose]);
 
-  return <div id="price-freq-chart" ref={chartRef} className="w-full h-[260px]" />;
+  return <div id="price-freq-chart" ref={chartRef} className="w-full h-[320px]" />;
 }
