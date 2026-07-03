@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-[#f0f2f5] text-[#2c3e50];
+    font-family: 'Segoe UI', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  /* 数字等宽 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 卡片 */
+  .card {
+    @apply bg-white rounded-[10px] p-[18px] shadow-[0_1px_4px_rgba(0,0,0,0.06)] mb-4;
+  }
+
+  .card-title {
+    @apply text-[15px] font-semibold mb-[14px] pb-2 border-b-2 border-[#f0f0f0] text-[#1a1a2e] flex justify-between items-center;
+  }
+
+  .badge {
+    @apply text-[11px] bg-[#eef2f7] text-[#5a6c7d] px-2 py-[2px] rounded-[10px] font-normal;
+  }
+
+  /* 按钮 */
+  .btn {
+    @apply px-[18px] py-2 border-none rounded-[6px] cursor-pointer text-[13px] font-medium transition-all duration-150;
+  }
+  .btn-sm {
+    @apply px-[10px] py-1 text-xs;
+  }
+  .btn-primary {
+    @apply bg-[#3498db] text-white hover:bg-[#2980b9];
+  }
+  .btn-success {
+    @apply bg-[#7dc88f] text-white hover:bg-[#5fb374];
+  }
+  .btn-danger {
+    @apply bg-[#e88a83] text-white hover:bg-[#c97168];
+  }
+  .btn-warn {
+    @apply bg-[#f39c12] text-white hover:bg-[#d68910];
+  }
+  .btn-edit {
+    @apply bg-[#f39c12] text-white hover:bg-[#d68910];
+  }
+  .btn-save {
+    @apply bg-[#7dc88f] text-white hover:bg-[#5fb374];
+  }
+  .btn-cancel-edit {
+    @apply bg-[#95a5a6] text-white hover:bg-[#7f8c8d];
+  }
+  .btn-delete {
+    @apply bg-[#e88a83] text-white hover:bg-[#c97168];
+  }
+  .btn-outline {
+    @apply bg-transparent border border-[#ddd] text-[#555] hover:bg-[#f8f9fa];
+  }
+
+  /* 输入框 */
+  .input-base {
+    @apply px-[10px] py-[7px] border border-[#e0e0e0] rounded-[6px] text-[13px] tabular focus:outline-none focus:border-[#3498db];
+  }
+
+  /* 表格 */
+  .table-wrap {
+    @apply overflow-x-auto max-h-[500px] overflow-y-auto rounded-[6px] border border-[#f0f0f0];
+  }
+  .data-table {
+    @apply w-full border-collapse text-xs;
+  }
+  .data-table th {
+    @apply bg-[#f8f9fa] px-2 py-[9px] text-center font-semibold text-[#555] border-b-2 border-[#e0e0e0] whitespace-nowrap sticky top-0 z-[5];
+  }
+  .data-table td {
+    @apply px-2 py-[7px] text-center border-b border-[#f0f0f0] whitespace-nowrap tabular;
+  }
+  .data-table tr:hover {
+    @apply bg-[#f8f9fb];
+  }
+
+  .td-buy {
+    @apply text-[#e88a83] font-semibold;
+  }
+  .td-sell {
+    @apply text-[#5fb374] font-semibold;
+  }
+  .td-profit-pos {
+    @apply text-[#5fb374] font-semibold;
+  }
+  .td-profit-neg {
+    @apply text-[#e88a83] font-semibold;
+  }
+  .td-level {
+    @apply text-[#8e44ad] font-semibold;
+  }
+
+  /* 提示条 */
+  .note {
+    @apply bg-[#eef6fc] border-l-4 border-[#3498db] px-[14px] py-[10px] rounded text-xs text-[#555] mb-[10px];
+  }
+  .note.tip {
+    @apply bg-[#fdf6e3] border-l-[#f39c12];
+  }
+  .note.warn {
+    @apply bg-[#fff8e1] border-l-[#f39c12];
+  }
+}
+
+@layer utilities {
+  .tr-flash {
+    animation: flash-highlight 2s ease;
+  }
+  @keyframes flash-highlight {
+    0%,
+    100% {
+      background: transparent;
+    }
+    15%,
+    55% {
+      background: #fff3cd;
+    }
+    75% {
+      background: #fef9e7;
+    }
+  }
+}
