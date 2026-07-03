@@ -82,16 +82,20 @@
     @apply overflow-x-auto max-h-[500px] overflow-y-auto rounded-[6px] border border-[#f0f0f0];
   }
   .data-table {
-    @apply w-full border-collapse text-xs;
+    @apply w-full border-collapse text-[13px];
   }
   .data-table th {
-    @apply bg-[#f8f9fa] px-2 py-[9px] text-center font-semibold text-[#555] border-b-2 border-[#e0e0e0] whitespace-nowrap sticky top-0 z-[5];
+    @apply bg-[#f8f9fa] px-3 py-[10px] text-center font-semibold text-[#444] border-b-2 border-[#e0e0e0] whitespace-nowrap sticky top-0 z-[5] text-[13px];
   }
   .data-table td {
-    @apply px-2 py-[7px] text-center border-b border-[#f0f0f0] whitespace-nowrap tabular;
+    @apply px-3 py-[9px] text-center border-b border-[#f0f0f0] whitespace-nowrap tabular text-[13px];
   }
   .data-table tr:hover {
     @apply bg-[#f8f9fb];
+  }
+  /* 编辑态输入框: 与表格字体尺寸一致 */
+  .data-table .editing {
+    @apply text-[13px] px-2 py-[5px] rounded-[4px] w-[90px];
   }
 
   .td-buy {
