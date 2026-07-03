@@ -188,10 +188,24 @@ export interface SyncSummary {
     cost: number;
   }>;
   todaySellOrders: Array<{
-    positionId: number;
-    buyPrice: number;
-    targetSellPrice: number;
-    lots: number;
-    profit: number;
+    /** 卖出价 (统一卖价) */
+    sellPrice: number;
+    /** 关联买单总股数 */
+    totalShares: number;
+    /** 关联买单总成本 */
+    totalCost: number;
+    /** 总卖出金额 */
+    totalSellValue: number;
+    /** 总手续费 */
+    totalFees: number;
+    /** 合并预期盈利 */
+    totalProfit: number;
+    /** 关联的买单列表 */
+    positions: Array<{
+      positionId: number;
+      buyPrice: number;
+      lots: number;
+      profit: number;
+    }>;
   }>;
 }

@@ -8,6 +8,7 @@ interface HeaderProps {
   onLinkSyncFile: () => void;
   onExportSyncFile: () => void;
   onExportData: () => void;
+  onExportExcel: () => void;
   onConfirmReset: () => void;
   onImportExcel: () => void;
 }
@@ -21,6 +22,7 @@ export function Header({
   onLinkSyncFile,
   onExportSyncFile,
   onExportData,
+  onExportExcel,
   onConfirmReset,
   onImportExcel,
 }: HeaderProps) {
@@ -74,6 +76,13 @@ export function Header({
           className="bg-white/15 text-white border border-white/20 px-[14px] py-1.5 rounded-[6px] cursor-pointer text-xs hover:bg-white/25"
         >
           导入Excel
+        </button>
+        <button
+          id="btn-export-excel"
+          onClick={onExportExcel}
+          className="bg-white/15 text-white border border-white/20 px-[14px] py-1.5 rounded-[6px] cursor-pointer text-xs hover:bg-white/25"
+        >
+          导出Excel
         </button>
         <button
           id="btn-export"

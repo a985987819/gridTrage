@@ -237,20 +237,25 @@ export function buildSyncSummary(appData: AppData): SyncSummary {
         }))
       : [],
     todaySellOrders: lastClose
-      ? buildSellPlan(stock).flatMap((g) =>
-          g.positions.map((p) => {
+      ? buildSellPlan(stock).map((g) => ({
+          sellPrice: g.sellPrice,
+          totalShares: g.totalShares,
+          totalCost: Number(g.totalCost.toFixed(2)),
+          totalSellValue: Number(g.totalSellValue.toFixed(2)),
+          totalFees: Number(g.totalFees.toFixed(2)),
+          totalProfit: Number(g.totalProfit.toFixed(2)),
+          positions: g.positions.map((p) => {
             const sellValue = p.shares * g.sellPrice;
             const fees = sellValue * (cfg.commissionRate + cfg.stampDutyRate);
             const profit = sellValue - fees - p.buyCost;
             return {
               positionId: p.id,
               buyPrice: p.buyPrice,
-              targetSellPrice: g.sellPrice,
               lots: p.lots,
               profit: Number(profit.toFixed(2)),
             };
           }),
-        )
+        }))
       : [],
   };
 }

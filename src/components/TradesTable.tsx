@@ -29,6 +29,18 @@ export function TradesTable({
   onSaveEdit,
   onDelete,
 }: TradesTableProps) {
+  // 找出"批量卖出批次": 同一卖出日 + 同一卖出价 + 多条记录 → 视为同一批次, 高亮标记
+  // 批次 key = sellDate|sellPrice, 仅对 count>1 的批次染色
+  const batchKeys = new Set<string>();
+  const counter = new Map<string, number>();
+  stock.completedTrades.forEach((t) => {
+    const key = `${t.sellDate}|${t.sellPrice}`;
+    counter.set(key, (counter.get(key) ?? 0) + 1);
+  });
+  counter.forEach((c, k) => {
+    if (c > 1) batchKeys.add(k);
+  });
+
   return (
     <div className="card">
       <div className="card-title">
@@ -37,12 +49,15 @@ export function TradesTable({
           {stock.completedTrades.length}笔
         </span>
       </div>
-      <div className="note tip">双击任意行进入编辑模式</div>
+      <div className="note tip">
+        双击任意行进入编辑模式 | 同卖出日+同卖出价的多条记录视为一次批量卖出, 以同色背景标记
+      </div>
       <div className="table-wrap" id="trades-table-wrap">
         <table className="data-table">
           <thead>
             <tr>
               <th>序号</th>
+              <th>批次</th>
               <th>网格层</th>
               <th>买入价</th>
               <th>买入日</th>
@@ -62,7 +77,7 @@ export function TradesTable({
           <tbody id="trades-tbody">
             {stock.completedTrades.length === 0 ? (
               <tr>
-                <td colSpan={15} className="empty-row p-[30px] text-center text-[#ccc]">
+                <td colSpan={16} className="empty-row p-[30px] text-center text-[#ccc]">
                   暂无已完成交易
                 </td>
               </tr>
@@ -79,14 +94,27 @@ export function TradesTable({
                     />
                   );
                 }
+                const batchKey = `${t.sellDate}|${t.sellPrice}`;
+                const inBatch = batchKeys.has(batchKey);
                 return (
                   <tr
                     key={t.tradeId}
-                    className="hover:bg-[#f0f7ff] cursor-pointer"
+                    className={`hover:bg-[#f0f7ff] cursor-pointer ${
+                      inBatch ? 'bg-[#fff8e1]' : ''
+                    }`}
                     onDoubleClick={() => onStartEdit(t.tradeId)}
-                    title="双击进入编辑"
+                    title={inBatch ? `批量卖出批次: ${t.sellDate} @ ${t.sellPrice}` : '双击进入编辑'}
                   >
                     <td>{t.tradeId}</td>
+                    <td className="td-batch">
+                      {inBatch ? (
+                        <span className="batch-tag" title={batchKey}>
+                          批
+                        </span>
+                      ) : (
+                        <span className="text-[#ccc]">-</span>
+                      )}
+                    </td>
                     <td className="td-level">#{t.gridLevel}</td>
                     <td className="td-buy">{fmt(t.buyPrice)}</td>
                     <td>{t.buyDate}</td>
@@ -157,6 +185,9 @@ function EditableTradeRow({ trade: t, onCancelEdit, onSaveEdit }: EditableTradeR
   return (
     <tr className="row-editing bg-[#fffde6]">
       <td>{t.tradeId}</td>
+      <td className="td-batch">
+        <span className="text-[#ccc]">-</span>
+      </td>
       <td className="td-level">#{t.gridLevel}</td>
       <td>
         <input

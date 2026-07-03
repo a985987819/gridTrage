@@ -20,6 +20,7 @@ import {
   exportSyncFile,
 } from './services/sync';
 import { parseExcelFile, importExcelToAppData } from './services/excelImport';
+import { exportAppDataToExcel } from './services/excelExport';
 import { todayStr } from './utils/format';
 
 import { Toast } from './components/Toast';
@@ -227,6 +228,26 @@ export default function App() {
     showToast(result.toast.msg, 'success');
   };
 
+  /** OperationPanel 批量卖出: 多选持仓 + 统一卖价 + 自定义日期 */
+  const handleBatchSellFromOp = (
+    posIds: number[],
+    sellPrice: number,
+    date: string,
+  ) => {
+    const result = executeBatchSell(stock, posIds, sellPrice, date);
+    if (result.toast.type === 'error') {
+      showToast(result.toast.msg, 'error');
+      return;
+    }
+    updateCurrentStock(() => result.stock);
+    showToast(result.toast.msg, 'success');
+  };
+
+  /** 导出 Excel (多 sheet: 概览/持仓/已完成交易/今日挂单) */
+  const handleExportExcel = () => {
+    exportAppDataToExcel(appData, showToast);
+  };
+
   /** 切换配置面板显示 */
   const toggleConfig = () => setConfigVisible((v) => !v);
 
@@ -416,6 +437,7 @@ export default function App() {
         onLinkSyncFile={handleLinkSyncFile}
         onExportSyncFile={() => exportSyncFile(showToast)}
         onExportData={exportData}
+        onExportExcel={handleExportExcel}
         onConfirmReset={confirmReset}
         onImportExcel={handleImportExcel}
       />
@@ -433,6 +455,7 @@ export default function App() {
         stock={stock}
         onExecuteBuy={handleExecuteBuy}
         onExecuteSell={handleExecuteSell}
+        onExecuteBatchSell={handleBatchSellFromOp}
       />
       <PlanGrid
         stock={stock}

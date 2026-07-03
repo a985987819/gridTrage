@@ -113,6 +113,13 @@
   .td-level {
     @apply text-[#8e44ad] font-semibold;
   }
+  .td-batch {
+    @apply text-center;
+  }
+  /* 批量卖出批次标记 */
+  .batch-tag {
+    @apply inline-block px-[5px] py-[1px] rounded-[4px] text-[10px] font-semibold bg-[#f39c12] text-white;
+  }
 
   /* 提示条 */
   .note {

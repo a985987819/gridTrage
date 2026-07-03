@@ -1,6 +1,5 @@
 import type { StockData } from '../types';
 import { fmt } from '../utils/format';
-import { ZoneChart } from './ZoneChart';
 import { PriceFreqChart } from './PriceFreqChart';
 
 interface ZoneAnalysisProps {
@@ -73,9 +72,6 @@ export function ZoneAnalysis({ stock, onLastCloseChange }: ZoneAnalysisProps) {
         <div className={statusCls + ' text-[13px] font-semibold px-3 py-1.5 rounded-[6px]'}>
           {statusText}
         </div>
-      </div>
-      <div className="zone-bar-wrap my-4 mb-2">
-        <ZoneChart priceStats={ps} config={cfg} lastClose={lastClose} />
       </div>
       {cfg.priceFreqWindows && cfg.priceFreqWindows.length > 0 && (
         <div
