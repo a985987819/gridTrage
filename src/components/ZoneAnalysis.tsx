@@ -1,6 +1,7 @@
 import type { StockData } from '../types';
 import { fmt } from '../utils/format';
 import { ZoneChart } from './ZoneChart';
+import { PriceFreqChart } from './PriceFreqChart';
 
 interface ZoneAnalysisProps {
   stock: StockData;
@@ -76,6 +77,26 @@ export function ZoneAnalysis({ stock, onLastCloseChange }: ZoneAnalysisProps) {
       <div className="zone-bar-wrap my-4 mb-2">
         <ZoneChart priceStats={ps} config={cfg} lastClose={lastClose} />
       </div>
+      {cfg.priceFreq && (
+        <div
+          id="price-freq-section"
+          className="mt-4 pt-3 border-t border-dashed border-[#e0e0e0]"
+        >
+          <div className="flex justify-between items-center mb-1">
+            <h4 className="text-[13px] font-semibold text-[#2c3e50]">
+              价格分布频率 (1元一档)
+            </h4>
+            <span className="badge" id="price-freq-badge">
+              历史共 {cfg.priceFreq.totalDays} 天
+            </span>
+          </div>
+          <div className="note tip" id="price-freq-note">
+            柱体颜色按档位从低到高(冷→暖)渐变; 输入昨日收盘价后, 当前所在档位会高亮描边并显示标记线,
+            可直观看到当前价格落在历史最活跃区间还是冷门区间。
+          </div>
+          <PriceFreqChart priceFreq={cfg.priceFreq} lastClose={lastClose} />
+        </div>
+      )}
       <div className="zone-cards grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
         <div className="zone-card buy-zone bg-[#fef7f6] border-l-4 border-[#e88a83] rounded-[8px] p-3 px-[14px]">
           <div className="zc-title text-[13px] font-bold mb-1 text-[#c97168]">

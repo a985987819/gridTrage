@@ -37,7 +37,7 @@ export function TradesTable({
           {stock.completedTrades.length}笔
         </span>
       </div>
-      <div className="note tip">点击编辑可修改交易数据</div>
+      <div className="note tip">双击任意行进入编辑模式</div>
       <div className="table-wrap" id="trades-table-wrap">
         <table className="data-table">
           <thead>
@@ -80,7 +80,12 @@ export function TradesTable({
                   );
                 }
                 return (
-                  <tr key={t.tradeId}>
+                  <tr
+                    key={t.tradeId}
+                    className="hover:bg-[#f0f7ff] cursor-pointer"
+                    onDoubleClick={() => onStartEdit(t.tradeId)}
+                    title="双击进入编辑"
+                  >
                     <td>{t.tradeId}</td>
                     <td className="td-level">#{t.gridLevel}</td>
                     <td className="td-buy">{fmt(t.buyPrice)}</td>

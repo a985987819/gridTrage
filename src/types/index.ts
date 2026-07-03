@@ -14,6 +14,24 @@ export interface PriceStats {
   max: number;
 }
 
+/** 价格分布频率 (1元一档) 单档数据 */
+export interface PriceFreqBin {
+  /** 档位下界 (元), 例如 5 表示 5~6 元档 */
+  from: number;
+  /** 档位上界 (元) */
+  to: number;
+  /** 此档位天数 */
+  days: number;
+}
+
+/** 价格分布频率统计集合 */
+export interface PriceFreq {
+  /** 总样本天数 */
+  totalDays: number;
+  /** 1元一档的分布数据 */
+  bins: PriceFreqBin[];
+}
+
 /** 股票配置 */
 export interface StockConfig {
   stockName: string;
@@ -27,6 +45,8 @@ export interface StockConfig {
   commissionRate: number;
   stampDutyRate: number;
   priceStats?: PriceStats;
+  /** 价格分布频率 (1元一档), 用于价格分布柱状图 */
+  priceFreq?: PriceFreq;
 }
 
 /** 持仓 */

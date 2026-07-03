@@ -45,7 +45,7 @@ export function PositionsTable({
         </span>
       </div>
       <div className="note tip">
-        点击任意持仓行可高亮对应的卖单规划 | 点击编辑可修改数据
+        单击任意持仓行可高亮对应的卖单规划 | 双击任意行进入编辑模式
       </div>
       <div className="table-wrap" id="positions-table-wrap">
         <table className="data-table">
@@ -152,6 +152,11 @@ function PositionRow({
       className="pos-row hover:bg-[#f0f7ff] cursor-pointer"
       id={`pos-row-${pos.id}`}
       onClick={() => onHighlightSellPlan(pos.id)}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onStartEdit(pos.id);
+      }}
+      title="单击高亮卖单规划 · 双击进入编辑"
     >
       <td>#{pos.id}</td>
       <td className="td-level">#{pos.gridLevel}</td>

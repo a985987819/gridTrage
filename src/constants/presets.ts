@@ -27,6 +27,22 @@ export const STOCK_PRESETS: Record<string, StockConfig> = {
       p90: 12.4,
       max: 13.38,
     },
+    // 价格分布频率 (1元一档) - 数据源: 柳工_000528_grid_trading_20260703.html
+    // 共 2039 个交易日 (历史全量), 档位 5~14 元
+    priceFreq: {
+      totalDays: 2039,
+      bins: [
+        { from: 5, to: 6, days: 47 },
+        { from: 6, to: 7, days: 643 },
+        { from: 7, to: 8, days: 433 },
+        { from: 8, to: 9, days: 195 },
+        { from: 9, to: 10, days: 227 },
+        { from: 10, to: 11, days: 200 },
+        { from: 11, to: 12, days: 217 },
+        { from: 12, to: 13, days: 74 },
+        { from: 13, to: 14, days: 3 },
+      ],
+    },
   },
   sanyi: {
     stockName: '三一重工',
