@@ -97,36 +97,6 @@ export function ZoneAnalysis({ stock, onLastCloseChange }: ZoneAnalysisProps) {
           <PriceFreqChart windows={cfg.priceFreqWindows} lastClose={lastClose} />
         </div>
       )}
-      <div className="zone-cards grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-        <div className="zone-card buy-zone bg-[#fef7f6] border-l-4 border-[#e88a83] rounded-[8px] p-3 px-[14px]">
-          <div className="zc-title text-[13px] font-bold mb-1 text-[#c97168]">
-            高胜率区间 · 大胆买入
-          </div>
-          <div className="zc-range text-lg font-bold tabular mb-1">
-            {fmt(ps.min)} ~ {fmt(med)}
-          </div>
-          <div className="zc-desc text-[11px] text-[#777]">
-            价格低于中位数, 全年约50%时间在此区间下方, 历史反弹概率高
-          </div>
-          <div className="zc-action bg-[#e88a83] text-white text-[11px] font-semibold mt-1.5 px-2 py-[3px] rounded inline-block">
-            逢低加仓, 放大网格
-          </div>
-        </div>
-        <div className="zone-card sell-zone bg-[#f4faf6] border-l-4 border-[#7dc88f] rounded-[8px] p-3 px-[14px]">
-          <div className="zc-title text-[13px] font-bold mb-1 text-[#5fb374]">
-            高收益区间 · 及时卖出
-          </div>
-          <div className="zc-range text-lg font-bold tabular mb-1">
-            {fmt(p75)} ~ {fmt(ps.max)}
-          </div>
-          <div className="zc-desc text-[11px] text-[#777]">
-            价格高于P75, 全年仅25%时间到达, 历史高位区域
-          </div>
-          <div className="zc-action bg-[#7dc88f] text-white text-[11px] font-semibold mt-1.5 px-2 py-[3px] rounded inline-block">
-            逢高减仓, 落袋为安
-          </div>
-        </div>
-      </div>
       <div className="zone-stats-row flex gap-2 flex-wrap mt-[10px] text-[11px]">
         {stats.map((s) => (
           <div

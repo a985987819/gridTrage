@@ -25,7 +25,8 @@ export function ConfigPanel({ config, visible, onSave, onLoadPreset }: ConfigPan
   const handleSave = () => {
     onSave({
       ...form,
-      priceStats: config.priceStats, // 保留价格统计
+      priceStats: config.priceStats, // 保留价格统计 (来自预设, 不可编辑)
+      priceFreqWindows: config.priceFreqWindows, // 保留多窗口价格分布 (来自预设, 不可编辑)
     });
   };
 
