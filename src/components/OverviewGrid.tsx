@@ -30,12 +30,6 @@ export function OverviewGrid({ stock }: OverviewGridProps) {
       cls: stock.accumulatedProfit >= 0 ? 'green' : 'red',
     },
     {
-      label: '可用资金',
-      value: fmtMoney(stock.availableCapital),
-      sub: '当前现金',
-      cls: '',
-    },
-    {
       label: '当前持仓',
       value: stock.positions.length + '笔',
       sub: '成本' + fmtMoney(positionsValue),

@@ -53,20 +53,8 @@ export function executeBuy(
   const buyCommission = buyValue * cfg.commissionRate;
   const totalCost = buyValue + buyCommission;
 
-  if (totalCost > stock.availableCapital) {
-    return {
-      stock,
-      toast: {
-        type: 'error',
-        msg: `资金不足! 需要${totalCost.toFixed(2)}, 可用${stock.availableCapital.toFixed(2)}`,
-      },
-      clearInputs: false,
-    };
-  }
-
   const newStock: StockData = { ...stock };
   newStock.positionIdCounter = stock.positionIdCounter + 1;
-  newStock.availableCapital = stock.availableCapital - totalCost;
   const level = gridLevelOf(price, cfg);
   const pos: Position = {
     id: newStock.positionIdCounter,
@@ -150,7 +138,6 @@ export function executeSell(
     completedTrades: [...stock.completedTrades],
   };
   newStock.tradeCounter = stock.tradeCounter + 1;
-  newStock.availableCapital = stock.availableCapital + netProceeds;
   newStock.accumulatedProfit = Number((stock.accumulatedProfit + profit).toFixed(2));
 
   const trade: CompletedTrade = {
@@ -299,14 +286,11 @@ export function buildTodaySellOrders(stock: StockData): SellPlan[] {
   return orders.slice(0, 5);
 }
 
-/** 删除持仓 (退还买入成本到可用资金) */
+/** 删除持仓 */
 export function deletePosition(stock: StockData, id: number): StockData {
-  const pos = stock.positions.find((p) => p.id === id);
-  const newAvailable = pos ? stock.availableCapital + pos.buyCost : stock.availableCapital;
   return {
     ...stock,
     positions: stock.positions.filter((p) => p.id !== id),
-    availableCapital: newAvailable,
     _editingPosId: undefined,
   };
 }

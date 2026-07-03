@@ -138,7 +138,6 @@ export function importExcelToAppData(
     const completedTrades: CompletedTrade[] = [];
     let positionIdCounter = 0;
     let tradeCounter = 0;
-    let availableCapital = cfg.startCapital;
 
     for (const row of groupRows) {
       const buyPrice = toNum(row[EXCEL_COLS.buyPrice]);
@@ -212,8 +211,6 @@ export function importExcelToAppData(
           buyCommission: Number(buyCommission.toFixed(2)),
           targetSellPrice,
         });
-        // 持仓占用资金
-        availableCapital -= buyAmount;
       }
       summary.imported++;
     }
@@ -232,7 +229,7 @@ export function importExcelToAppData(
       completedTrades,
       tradeCounter: completedTrades.length,
       positionIdCounter: positions.length,
-      availableCapital: Number(availableCapital.toFixed(2)),
+      availableCapital: cfg.startCapital,
       accumulatedProfit: Number(acc.toFixed(2)),
       // 保留原有的 lastClosePrice
       lastClosePrice: newStocks[stockKey]?.lastClosePrice ?? null,
