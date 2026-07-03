@@ -84,15 +84,15 @@ export function ZoneAnalysis({ stock, onLastCloseChange }: ZoneAnalysisProps) {
         >
           <div className="flex justify-between items-center mb-1">
             <h4 className="text-[13px] font-semibold text-[#2c3e50]">
-              价格分布频率 (0.1元一档 · 三时间窗口对比)
+              价格分布频率 (0.1元一档 · 三时间窗口分别统计)
             </h4>
             <span className="badge" id="price-freq-badge">
               8年/3年/1年
             </span>
           </div>
           <div className="note tip" id="price-freq-note">
-            对比过去8年 / 3年 / 1年的收盘价分布, 观察价格中枢迁移趋势。
-            点击图例可切换显示某窗口; 输入昨日收盘价后, 虚线标注当前价所在档位。
+            分别展示过去8年 / 3年 / 1年的收盘价分布柱状图, 观察价格中枢迁移趋势。
+            输入昨日收盘价后, 虚线标注当前价所在档位。
           </div>
           <PriceFreqChart windows={cfg.priceFreqWindows} lastClose={lastClose} />
         </div>
