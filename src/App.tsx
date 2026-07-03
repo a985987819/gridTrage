@@ -27,7 +27,6 @@ import { Header } from './components/Header';
 import { ConfigPanel } from './components/ConfigPanel';
 import { OverviewGrid } from './components/OverviewGrid';
 import { ZoneAnalysis } from './components/ZoneAnalysis';
-import { TodayOrders } from './components/TodayOrders';
 import { OperationPanel } from './components/OperationPanel';
 import { PlanGrid } from './components/PlanGrid';
 import { PositionsTable } from './components/PositionsTable';
@@ -409,12 +408,6 @@ export default function App() {
         <OverviewGrid stock={stock} />
       </div>
       <ZoneAnalysis stock={stock} onLastCloseChange={setLastClose} />
-      <TodayOrders
-        stock={stock}
-        onQuickBuy={quickBuy}
-        onQuickSell={quickSell}
-        onHighlightPosition={highlightPosition}
-      />
       <OperationPanel
         stock={stock}
         onExecuteBuy={handleExecuteBuy}

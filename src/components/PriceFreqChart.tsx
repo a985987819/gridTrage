@@ -9,12 +9,33 @@ interface PriceFreqChartProps {
 }
 
 /**
- * 价格分布频率柱状图 (1元一档)
- * - X 轴: 价格档位 (5-6, 6-7, ...)
+ * 价格分布频率柱状图 (0.1元一档)
+ * - X 轴: 价格档位下界 (5.6, 5.7, ...)
  * - Y 轴: 天数
- * - 柱体颜色: 按档位渐变 (低档偏冷色, 高档偏暖色)
+ * - 柱体颜色: 按价格档位连续渐变 (低价绿色 → 中价金色 → 高价红色)
  * - 当前价标记线: 输入昨日收盘价后高亮当前所在档位
  */
+
+/** 在两个 hex 颜色间线性插值, t ∈ [0,1] */
+function lerpColor(c1: string, c2: string, t: number): string {
+  const r1 = parseInt(c1.slice(1, 3), 16);
+  const g1 = parseInt(c1.slice(3, 5), 16);
+  const b1 = parseInt(c1.slice(5, 7), 16);
+  const r2 = parseInt(c2.slice(1, 3), 16);
+  const g2 = parseInt(c2.slice(3, 5), 16);
+  const b2 = parseInt(c2.slice(5, 7), 16);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/** 按位置 t ∈ [0,1] 返回绿→金→红渐变色 */
+function gradientColor(t: number): string {
+  if (t < 0.5) return lerpColor('#7dc88f', '#f5c163', t * 2);
+  return lerpColor('#f5c163', '#e88a83', (t - 0.5) * 2);
+}
+
 export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -34,22 +55,10 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
   useEffect(() => {
     if (!chartInstance.current || !chartRef.current) return;
 
-    const labels = pf.bins.map((b) => `${b.from}-${b.to}`);
+    const labels = pf.bins.map((b) => `${b.from}`);
     const days = pf.bins.map((b) => b.days);
     const total = pf.totalDays;
-
-    // 柱体配色: 按档位从低到高, 冷→暖渐变
-    const palette = [
-      '#5fb374',
-      '#7dc88f',
-      '#aab87d',
-      '#f5c163',
-      '#f0a060',
-      '#e88a83',
-      '#c97168',
-      '#b85c5c',
-      '#a04848',
-    ];
+    const binCount = pf.bins.length;
 
     // 找出当前价所在档位
     let activeBinIndex = -1;
@@ -63,9 +72,10 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
       }
     }
 
-    // 柱体样式: 当前价所在档位高亮 (描边 + 半透明叠加)
+    // 柱体样式: 按价格档位连续渐变 (绿→金→红), 当前价档位高亮描边
     const itemStyles = pf.bins.map((_, i) => {
-      const baseColor = palette[i % palette.length];
+      const t = binCount > 1 ? i / (binCount - 1) : 0;
+      const baseColor = gradientColor(t);
       if (i === activeBinIndex) {
         return {
           color: baseColor,
@@ -76,7 +86,7 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
       }
       return {
         color: baseColor,
-        opacity: 0.65,
+        opacity: 0.75,
         borderRadius: [4, 4, 0, 0] as [number, number, number, number],
       };
     });
@@ -107,9 +117,11 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
         formatter: (params: any) => {
           const p = params[0];
           if (!p) return '';
+          const idx = p.dataIndex;
+          const bin = pf.bins[idx];
           const day = p.value as number;
           const pct = total > 0 ? ((day / total) * 100).toFixed(1) : '0.0';
-          return `${p.name}元<br/>天数: <b>${day}</b>天<br/>占比: <b>${pct}%</b>`;
+          return `${bin.from}-${bin.to}元<br/>天数: <b>${day}</b>天<br/>占比: <b>${pct}%</b>`;
         },
       },
       xAxis: {
@@ -120,7 +132,12 @@ export function PriceFreqChart({ priceFreq: pf, lastClose }: PriceFreqChartProps
         axisLabel: {
           fontSize: 11,
           color: '#7f8c8d',
-          rotate: 30,
+          rotate: 45,
+          interval: (index: number, value: string) => {
+            // 只显示整数元标签 (6.0, 7.0, ...) 避免过密
+            const num = parseFloat(value);
+            return Number.isInteger(num);
+          },
         },
       },
       yAxis: {

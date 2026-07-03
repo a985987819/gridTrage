@@ -14,9 +14,9 @@ export interface PriceStats {
   max: number;
 }
 
-/** 价格分布频率 (1元一档) 单档数据 */
+/** 价格分布频率 (0.1元一档) 单档数据 */
 export interface PriceFreqBin {
-  /** 档位下界 (元), 例如 5 表示 5~6 元档 */
+  /** 档位下界 (元), 例如 6.2 表示 6.2~6.3 元档 */
   from: number;
   /** 档位上界 (元) */
   to: number;
@@ -28,7 +28,7 @@ export interface PriceFreqBin {
 export interface PriceFreq {
   /** 总样本天数 */
   totalDays: number;
-  /** 1元一档的分布数据 */
+  /** 0.1元一档的分布数据 */
   bins: PriceFreqBin[];
 }
 
@@ -45,7 +45,7 @@ export interface StockConfig {
   commissionRate: number;
   stampDutyRate: number;
   priceStats?: PriceStats;
-  /** 价格分布频率 (1元一档), 用于价格分布柱状图 */
+  /** 价格分布频率 (0.1元一档), 用于价格分布柱状图 */
   priceFreq?: PriceFreq;
 }
 
