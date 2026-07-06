@@ -299,14 +299,18 @@ export default function App() {
     excelInputRef.current?.click();
   };
 
-  /** 处理 Excel 文件选中 */
-  const handleExcelFileChange = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = e.target.files?.[0];
-    // 清空 input 以便重复选择同一文件
-    e.target.value = '';
-    if (!file) return;
+  /** 处理单个 Excel 文件 (供 input 选择和拖入共用) */
+  const handleExcelFile = async (file: File) => {
+    // 校验文件类型
+    const isExcel =
+      file.name.endsWith('.xlsx') ||
+      file.name.endsWith('.xls') ||
+      file.type.includes('spreadsheet') ||
+      file.type.includes('excel');
+    if (!isExcel) {
+      showToast('仅支持 .xlsx / .xls 文件', 'warn');
+      return;
+    }
 
     try {
       const rows = await parseExcelFile(file);
@@ -316,7 +320,7 @@ export default function App() {
       }
       showModal(
         '导入 Excel 确认',
-        `检测到 ${rows.length} 条记录。导入将替换匹配股票的全部数据(持仓+已完成交易), 是否继续?`,
+        `检测到 ${rows.length} 条记录。导入将替换匹配股票的全部数据(持仓+已完成交易), 并按新算法重算卖价 (shares*(sell-buy)=buy*100, x.x1买/x.x8卖), 是否继续?`,
         async () => {
           try {
             const { data: newData, summary } = importExcelToAppData(appData, rows);
@@ -344,6 +348,32 @@ export default function App() {
       console.error(err);
       showToast('解析 Excel 失败: ' + (err as Error).message, 'error');
     }
+  };
+
+  /** 处理 Excel 文件选中 */
+  const handleExcelFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    // 清空 input 以便重复选择同一文件
+    e.target.value = '';
+    if (!file) return;
+    handleExcelFile(file);
+  };
+
+  /** 拖入 Excel 文件 */
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    handleExcelFile(file);
+  };
+
+  /** 阻止默认拖入行为 (允许 drop) */
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   /** 导出全部数据 */
@@ -429,7 +459,12 @@ export default function App() {
   };
 
   return (
-    <div className="app-root max-w-[1300px] mx-auto p-4">
+    <div
+      className="app-root max-w-[1300px] mx-auto p-4 relative"
+      id="app-root"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
       <input
         id="excel-file-input"
         ref={excelInputRef}

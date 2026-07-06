@@ -27,12 +27,14 @@ export function createFreshStockData(presetKey: string): StockData {
 
 /** 默认应用数据 */
 export function createDefaultAppData(): AppData {
+  const stocks: Record<string, StockData> = {};
+  // 为所有预设生成默认数据, 新增预设自动加入
+  Object.keys(STOCK_PRESETS).forEach((key) => {
+    stocks[key] = createFreshStockData(key);
+  });
   return {
     currentStockKey: 'liugong',
-    stocks: {
-      liugong: createFreshStockData('liugong'),
-      sanyi: createFreshStockData('sanyi'),
-    },
+    stocks,
   };
 }
 
@@ -62,7 +64,10 @@ export function loadState(): AppData {
         }
       }
       if (!data.stocks.liugong) data.stocks.liugong = createFreshStockData('liugong');
-      if (!data.stocks.sanyi) data.stocks.sanyi = createFreshStockData('sanyi');
+      // 补全所有预设, 旧版本 localStorage 中可能缺新预设
+      Object.keys(STOCK_PRESETS).forEach((key) => {
+        if (!data.stocks[key]) data.stocks[key] = createFreshStockData(key);
+      });
       if (!data.currentStockKey) data.currentStockKey = 'liugong';
 
       // 兼容旧数据: 从预设补全后续新增的统计字段 (priceStats / priceFreqWindows)

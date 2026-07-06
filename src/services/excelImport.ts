@@ -2,7 +2,12 @@ import * as XLSX from 'xlsx';
 import type { AppData, StockData, Position, CompletedTrade } from '../types';
 import { STOCK_PRESETS } from '../constants/presets';
 import { createFreshStockData } from './storage';
-import { gridLevelOf } from '../utils/grid';
+import {
+  gridLevelOf,
+  forceBuyPrice,
+  forceSellPrice,
+  calcSellPrice,
+} from '../utils/grid';
 
 /**
  * Excel 导入服务
@@ -140,21 +145,26 @@ export function importExcelToAppData(
     let tradeCounter = 0;
 
     for (const row of groupRows) {
-      const buyPrice = toNum(row[EXCEL_COLS.buyPrice]);
+      const rawBuyPrice = toNum(row[EXCEL_COLS.buyPrice]);
       const buyShares = toNum(row[EXCEL_COLS.buyShares]);
       const buyAmount = toNum(row[EXCEL_COLS.buyAmount]);
-      const targetSellPrice = toNum(row[EXCEL_COLS.targetSellPrice]);
       const completed = toNum(row[EXCEL_COLS.completed]);
       const buyDate = normalizeDate(row[EXCEL_COLS.buyDate]);
       const sellDate = normalizeDate(row[EXCEL_COLS.sellDate]);
       const realizedProfit = toNum(row[EXCEL_COLS.realizedProfit]);
       const sellAmount = toNum(row[EXCEL_COLS.sellAmount]);
-      const buyLots = Math.round(buyShares / 100);
 
-      if (!buyPrice || buyShares <= 0) {
+      if (!rawBuyPrice || buyShares <= 0) {
         summary.skipped++;
         continue;
       }
+
+      // 强迫症管理: 买入价 .x1 结尾
+      const buyPrice = forceBuyPrice(rawBuyPrice);
+      // 放弃 Excel 中的 targetSellPrice, 用新算法重算: shares*(sell-buy)=buy*100
+      // 卖出价 .x8 结尾
+      const targetSellPrice = calcSellPrice(buyPrice, Math.round(buyShares));
+      const buyLots = Math.round(buyShares / 100);
 
       // 买入佣金反推: buyAmount = shares*buyPrice*(1+rate) → comm = buyAmount - shares*buyPrice
       const buyCommission = Math.max(
@@ -165,8 +175,12 @@ export function importExcelToAppData(
       if (completed >= 1) {
         // 已完成交易
         tradeCounter++;
+        // 卖出价应用强迫症 .x8; sellAmount 优先用 Excel 值, 否则反推
+        const finalSellPrice = forceSellPrice(
+          sellAmount > 0 ? sellAmount / buyShares : targetSellPrice,
+        );
         // sellAmount 是毛卖出金额; netProceeds 反推保证 profit 与 Excel 一致
-        const sellValue = sellAmount > 0 ? sellAmount : buyShares * targetSellPrice;
+        const sellValue = sellAmount > 0 ? sellAmount : buyShares * finalSellPrice;
         const sellCommission = sellValue * cfg.commissionRate;
         const stampDuty = sellValue * cfg.stampDutyRate;
         const netProceeds =
@@ -186,7 +200,7 @@ export function importExcelToAppData(
           buyLots,
           buyCost: Number(buyAmount.toFixed(2)),
           buyCommission: Number(buyCommission.toFixed(2)),
-          sellPrice: targetSellPrice,
+          sellPrice: finalSellPrice,
           sellDate,
           sellValue: Number(sellValue.toFixed(2)),
           sellCommission: Number(sellCommission.toFixed(2)),
@@ -233,6 +247,8 @@ export function importExcelToAppData(
       accumulatedProfit: Number(acc.toFixed(2)),
       // 保留原有的 lastClosePrice
       lastClosePrice: newStocks[stockKey]?.lastClosePrice ?? null,
+      // 标记为新算法版本, 避免 loadState 重复重算
+      sellPriceAlgoVersion: 2,
     };
     newStocks[stockKey] = newStock;
     if (!summary.stocksUpdated.includes(stockName)) {
