@@ -4,10 +4,13 @@ import {
   STORAGE_KEY,
   LEGACY_STORAGE_KEY_V1,
 } from '../constants/presets';
-import { calcSellPrice } from '../utils/grid';
+import { calcSellPrice, gridLevelOf } from '../utils/grid';
 
 /** 当前目标卖价算法版本 (用于一次性迁移已有数据) */
 const SELL_PRICE_ALGO_VERSION = 2;
+
+/** 当前策略参数版本 (预设策略变更时升级, 触发一次性同步) */
+const STRATEGY_VERSION = 2;
 
 /** 根据预设创建一份全新的股票数据 */
 export function createFreshStockData(presetKey: string): StockData {
@@ -22,6 +25,7 @@ export function createFreshStockData(presetKey: string): StockData {
     positionIdCounter: 0,
     lastClosePrice: null,
     sellPriceAlgoVersion: SELL_PRICE_ALGO_VERSION,
+    strategyVersion: STRATEGY_VERSION,
   };
 }
 
@@ -98,6 +102,30 @@ export function loadState(): AppData {
             targetSellPrice: calcSellPrice(p.buyPrice, p.shares),
           }));
           stock.sellPriceAlgoVersion = SELL_PRICE_ALGO_VERSION;
+        }
+      });
+
+      // 兼容旧数据: 策略参数升级迁移
+      // 旧版策略各股票 gridDrop/baseBuyAmount 不同 (version 缺省或 1)
+      // 新版策略统一 gridDrop=0.5, baseBuyAmount=6000 (version = 2)
+      // 缺省或旧版本时一次性同步预设策略参数并重算持仓 gridLevel
+      Object.keys(data.stocks).forEach((key) => {
+        const stock = data.stocks[key];
+        const preset = STOCK_PRESETS[key];
+        if (!preset) return;
+        if (!stock.strategyVersion || stock.strategyVersion < STRATEGY_VERSION) {
+          stock.config.gridDrop = preset.gridDrop;
+          stock.config.baseBuyAmount = preset.baseBuyAmount;
+          stock.config.basePrice = preset.basePrice;
+          stock.config.baseShares = preset.baseShares;
+          stock.config.gridProfit = preset.gridProfit;
+          stock.config.startCapital = preset.startCapital;
+          // 重算持仓的 gridLevel (因为 gridDrop 变了)
+          stock.positions = stock.positions.map((p) => ({
+            ...p,
+            gridLevel: gridLevelOf(p.buyPrice, stock.config),
+          }));
+          stock.strategyVersion = STRATEGY_VERSION;
         }
       });
     } else {

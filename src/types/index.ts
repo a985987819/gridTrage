@@ -112,6 +112,12 @@ export interface StockData {
    * 缺省时会被 loadState 视为 1 并迁移到 2
    */
   sellPriceAlgoVersion?: number;
+  /**
+   * 策略参数版本号 (用于预设策略变更时一次性同步)
+   * 2 = gridDrop=0.5, baseBuyAmount=6000 (每下跌0.5元买入, 每次~6000元)
+   * 缺省时会被 loadState 视为 1 并迁移到 2
+   */
+  strategyVersion?: number;
   /** 临时编辑状态(不持久化) */
   _editingPosId?: number;
   _editingTradeId?: number;
