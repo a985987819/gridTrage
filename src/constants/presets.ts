@@ -99,7 +99,7 @@ export const STOCK_PRESETS: Record<string, StockConfig> = {
     ],
   },
   andaomai: {
-    stockName: '安道麦',
+    stockName: '安道麦A',
     stockCode: '000553',
     basePrice: 6.16,
     baseShares: 2000,

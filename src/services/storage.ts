@@ -72,9 +72,12 @@ export function loadState(): AppData {
 
       // 兼容旧数据: 从预设补全后续新增的统计字段 (priceStats / priceFreqWindows)
       // localStorage 中存储的 config 可能是旧版本, 不含新增字段, 需以预设为准
+      // stockName / stockCode 等标识字段也以预设为准 (如改名后同步)
       Object.keys(data.stocks).forEach((key) => {
         const preset = STOCK_PRESETS[key];
         if (!preset) return;
+        data.stocks[key].config.stockName = preset.stockName;
+        data.stocks[key].config.stockCode = preset.stockCode;
         if (preset.priceStats && !data.stocks[key].config.priceStats) {
           data.stocks[key].config.priceStats = preset.priceStats;
         }
