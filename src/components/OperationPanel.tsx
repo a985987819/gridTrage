@@ -101,7 +101,8 @@ export function OperationPanel({
       : 1;
   const nextPrice = gridPriceOf(nextLevel, cfg);
   const su = calcSuggestLots(nextPrice, stock);
-  const nextSellPrice = calcSellPrice(nextPrice, cfg);
+  // 按新算法计算下一买点的目标卖价 (基于建议手数对应的股数)
+  const nextSellPrice = calcSellPrice(nextPrice, su.total * 100);
 
   const sortedPositions = [...stock.positions].sort(
     (a, b) => a.targetSellPrice - b.targetSellPrice,

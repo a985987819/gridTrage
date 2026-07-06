@@ -65,7 +65,7 @@ export function executeBuy(
     shares,
     buyCost: totalCost,
     buyCommission,
-    targetSellPrice: calcSellPrice(price, cfg),
+    targetSellPrice: calcSellPrice(price, shares),
   };
   newStock.positions = [...stock.positions, pos];
 
@@ -261,7 +261,7 @@ export function linkPositionsToSell(
     }
     // 之前挂在此卖价但被移除 → 回归默认卖价
     if (Math.abs(p.targetSellPrice - newSellPrice) < 0.001) {
-      return { ...p, targetSellPrice: calcSellPrice(p.buyPrice, cfg) };
+      return { ...p, targetSellPrice: calcSellPrice(p.buyPrice, p.shares) };
     }
     return p;
   });

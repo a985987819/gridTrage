@@ -208,6 +208,16 @@ export default function App() {
     setHighlightedPosIds([]);
   };
 
+  /** 持仓行 hover: 高亮同卖价的全部关联买单 */
+  const handleHoverPosition = (posIds: number[]) => {
+    setHighlightedPosIds(posIds);
+  };
+
+  /** 持仓行 hover 结束: 清除高亮 */
+  const handleHoverPositionEnd = () => {
+    setHighlightedPosIds([]);
+  };
+
   /** 关联买单到卖价 (支持多选, 数量/盈利合并) */
   const handleLinkSell = (sellPrice: number, positionIds: number[]) => {
     updateCurrentStock((prev) => linkPositionsToSell(prev, sellPrice, positionIds));
@@ -470,6 +480,8 @@ export default function App() {
         onQuickSell={quickSell}
         onHighlightSellPlan={highlightSellPlan}
         highlightedPosIds={highlightedPosIds}
+        onHoverPosition={handleHoverPosition}
+        onHoverPositionEnd={handleHoverPositionEnd}
         onStartEdit={(id) =>
           updateCurrentStock((prev) => ({ ...prev, _editingPosId: id }))
         }

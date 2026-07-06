@@ -7,6 +7,9 @@ interface PositionsTableProps {
   onQuickSell: (posId: number) => void;
   onHighlightSellPlan: (posId: number) => void;
   highlightedPosIds: number[];
+  /** hover 持仓行: 高亮同卖价的全部关联买单 */
+  onHoverPosition: (posIds: number[]) => void;
+  onHoverPositionEnd: () => void;
   onStartEdit: (id: number) => void;
   onCancelEdit: () => void;
   onSaveEdit: (
@@ -28,6 +31,8 @@ export function PositionsTable({
   onQuickSell,
   onHighlightSellPlan,
   highlightedPosIds,
+  onHoverPosition,
+  onHoverPositionEnd,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
@@ -39,6 +44,14 @@ export function PositionsTable({
   );
   const highlightSet = new Set(highlightedPosIds);
 
+  // 按目标卖价分组, 用于 hover 时查找关联买单
+  const sellPriceGroup = new Map<number, Position[]>();
+  for (const p of sorted) {
+    const key = Number(p.targetSellPrice.toFixed(2));
+    if (!sellPriceGroup.has(key)) sellPriceGroup.set(key, []);
+    sellPriceGroup.get(key)!.push(p);
+  }
+
   return (
     <div className="card" id="positions-card">
       <div className="card-title">
@@ -48,7 +61,7 @@ export function PositionsTable({
         </span>
       </div>
       <div className="note tip">
-        悬停上方卖单可高亮关联买单 | 单击持仓行高亮对应卖单 | 双击任意行进入编辑模式
+        悬停持仓行高亮同卖价关联买单并显示卖价详情 | 单击持仓行高亮对应卖单 | 双击任意行进入编辑模式
       </div>
       <div className="table-wrap" id="positions-table-wrap">
         <table className="data-table">
@@ -82,6 +95,9 @@ export function PositionsTable({
                 const profit = net - p.buyCost;
                 const editing = stock._editingPosId === p.id;
                 const highlighted = highlightSet.has(p.id);
+                // 同卖价的关联买单 (用于 hover tooltip 显示)
+                const sellPriceKey = Number(p.targetSellPrice.toFixed(2));
+                const linkedPositions = sellPriceGroup.get(sellPriceKey) ?? [p];
                 return (
                   <PositionRow
                     key={p.id}
@@ -90,8 +106,11 @@ export function PositionsTable({
                     profit={profit}
                     editing={editing}
                     highlighted={highlighted}
+                    linkedPositions={linkedPositions}
                     onQuickSell={onQuickSell}
                     onHighlightSellPlan={onHighlightSellPlan}
+                    onHoverPosition={onHoverPosition}
+                    onHoverPositionEnd={onHoverPositionEnd}
                     onStartEdit={onStartEdit}
                     onCancelEdit={onCancelEdit}
                     onSaveEdit={onSaveEdit}
@@ -113,8 +132,12 @@ interface PositionRowProps {
   profit: number;
   editing: boolean;
   highlighted: boolean;
+  /** 同卖价的全部关联买单 (含自己) */
+  linkedPositions: Position[];
   onQuickSell: (posId: number) => void;
   onHighlightSellPlan: (posId: number) => void;
+  onHoverPosition: (posIds: number[]) => void;
+  onHoverPositionEnd: () => void;
   onStartEdit: (id: number) => void;
   onCancelEdit: () => void;
   onSaveEdit: (
@@ -136,8 +159,11 @@ function PositionRow({
   profit,
   editing,
   highlighted,
+  linkedPositions,
   onQuickSell,
   onHighlightSellPlan,
+  onHoverPosition,
+  onHoverPositionEnd,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
@@ -154,6 +180,25 @@ function PositionRow({
       />
     );
   }
+
+  // 构造 hover tooltip 文本: 显示卖价 + 关联买单列表
+  const isLinked = linkedPositions.length > 1;
+  const tooltipLines: string[] = [];
+  tooltipLines.push(`目标卖价: ${fmt(pos.targetSellPrice)} 元`);
+  if (isLinked) {
+    tooltipLines.push(`关联 ${linkedPositions.length} 笔买单:`);
+    linkedPositions.forEach((lp) => {
+      tooltipLines.push(
+        `  #${lp.id} 买${fmt(lp.buyPrice)} · ${lp.lots}手 · ${lp.shares}股`,
+      );
+    });
+    const totalShares = linkedPositions.reduce((s, p) => s + p.shares, 0);
+    tooltipLines.push(`合并总股数: ${totalShares}`);
+  } else {
+    tooltipLines.push(`(独立卖单, 未与其他买单关联)`);
+  }
+  const tooltipText = tooltipLines.join('\n');
+
   return (
     <tr
       className={`pos-row hover:bg-[#f0f7ff] cursor-pointer ${
@@ -165,7 +210,9 @@ function PositionRow({
         e.stopPropagation();
         onStartEdit(pos.id);
       }}
-      title="单击高亮对应卖单 · 双击进入编辑"
+      onMouseEnter={() => onHoverPosition(linkedPositions.map((p) => p.id))}
+      onMouseLeave={onHoverPositionEnd}
+      title={tooltipText}
     >
       <td>#{pos.id}</td>
       <td className="td-level">#{pos.gridLevel}</td>
@@ -175,7 +222,17 @@ function PositionRow({
       <td>{pos.shares}</td>
       <td>{fmtMoney(pos.buyCost)}</td>
       <td>{fmt(pos.buyCommission)}</td>
-      <td className="td-sell">{fmt(pos.targetSellPrice)}</td>
+      <td className="td-sell">
+        {fmt(pos.targetSellPrice)}
+        {isLinked && (
+          <span
+            className="ml-1 inline-block px-[4px] py-[1px] rounded-[3px] text-[9px] bg-[#f39c12] text-white align-middle"
+            title={`关联${linkedPositions.length}笔`}
+          >
+            关{linkedPositions.length}
+          </span>
+        )}
+      </td>
       <td>{fmtMoney(net)}</td>
       <td className={profit >= 0 ? 'td-profit-pos' : 'td-profit-neg'}>
         {profit >= 0 ? '+' : ''}
@@ -190,15 +247,6 @@ function PositionRow({
           }}
         >
           卖出
-        </button>
-        <button
-          className="btn btn-edit btn-sm ml-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            onStartEdit(pos.id);
-          }}
-        >
-          编辑
         </button>
         <button
           className="btn btn-delete btn-sm ml-1"

@@ -30,9 +30,18 @@ export function gridPriceOf(level: number, cfg: StockConfig): number {
   return forceBuyPrice(cfg.basePrice - cfg.gridDrop * level);
 }
 
-/** 根据买入价计算卖出价 (自动应用强迫症管理) */
-export function calcSellPrice(buyPrice: number, cfg: StockConfig): number {
-  return forceSellPrice(buyPrice + cfg.gridProfit);
+/**
+ * 根据买入价和股数计算卖出价
+ * 算法: 买入股数 * (目标卖价 - 买入价) = 买入价 * 100
+ * 即目标利润 = 100 股的买入成本 (固定每次盈利目标)
+ * 解出: sellPrice = buyPrice + (buyPrice * 100) / shares
+ * 最后应用强迫症管理 (.x8 结尾)
+ */
+export function calcSellPrice(buyPrice: number, shares: number): number {
+  if (shares <= 0) return forceSellPrice(buyPrice);
+  const profitTarget = buyPrice * 100;
+  const rawSellPrice = buyPrice + profitTarget / shares;
+  return forceSellPrice(rawSellPrice);
 }
 
 /**

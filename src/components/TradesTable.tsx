@@ -50,7 +50,7 @@ export function TradesTable({
         </span>
       </div>
       <div className="note tip">
-        双击任意行进入编辑模式 | 同卖出日+同卖出价的多条记录视为一次批量卖出, 以同色背景标记
+        双击任意行进入编辑模式 (无需点击编辑按钮) | 同卖出日+同卖出价的多条记录视为一次批量卖出, 以同色背景标记
       </div>
       <div className="table-wrap" id="trades-table-wrap">
         <table className="data-table">
@@ -133,13 +133,7 @@ export function TradesTable({
                     <td>{fmtMoney(t.accumulatedProfit)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button
-                        className="btn btn-edit btn-sm"
-                        onClick={() => onStartEdit(t.tradeId)}
-                      >
-                        编辑
-                      </button>
-                      <button
-                        className="btn btn-delete btn-sm ml-1"
+                        className="btn btn-delete btn-sm"
                         onClick={() => onDelete(t.tradeId)}
                       >
                         删除

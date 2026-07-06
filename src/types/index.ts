@@ -105,6 +105,13 @@ export interface StockData {
   tradeCounter: number;
   positionIdCounter: number;
   lastClosePrice: number | null;
+  /**
+   * 目标卖价算法版本号 (用于一次性数据迁移)
+   * 1 = 旧版 buyPrice + cfg.gridProfit
+   * 2 = 新版 shares*(sell-buy)=buy*100 → sellPrice = buyPrice + buyPrice*100/shares
+   * 缺省时会被 loadState 视为 1 并迁移到 2
+   */
+  sellPriceAlgoVersion?: number;
   /** 临时编辑状态(不持久化) */
   _editingPosId?: number;
   _editingTradeId?: number;

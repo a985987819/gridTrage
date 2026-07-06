@@ -92,12 +92,15 @@ export function PlanGrid({
                     </div>
                     <div className="plan-meta text-[10px] text-[#999]">
                       网格层 #{p.level} | 基础{p.suggest.base}手+利润{p.suggest.extra}手 | 需
-                      {fmtMoney(p.cost)}
+                      <span className="text-[#c97168] font-bold text-[11px]">
+                        {fmtMoney(p.cost)}
+                      </span>
                     </div>
                   </div>
                   <div className="plan-right flex items-center gap-2">
-                    <span className="plan-lots text-[13px] font-semibold text-[#555] tabular">
-                      {p.suggest.total}手
+                    <span className="plan-lots text-[16px] font-bold text-[#c97168] tabular px-[6px] py-[2px] rounded-[4px] bg-[#fbeae7]">
+                      {p.suggest.total}
+                      <span className="text-[10px] font-normal ml-[2px]">手</span>
                     </span>
                     <button
                       className="btn btn-danger btn-sm"
@@ -146,7 +149,11 @@ export function PlanGrid({
                         <div className="plan-price text-[15px] font-bold text-[#5fb374] tabular">
                           {fmt(g.sellPrice)} <span className="text-[11px] text-[#999]">卖</span>
                           <span className="ml-2 text-[10px] text-[#888] font-normal">
-                            关联 {g.positions.length}笔 · {g.totalShares}股
+                            关联 {g.positions.length}笔 ·{' '}
+                            <span className="text-[16px] font-bold text-[#5fb374] px-[4px] py-[1px] rounded-[4px] bg-[#e3f1e7] align-middle">
+                              {g.totalShares}
+                              <span className="text-[10px] font-normal ml-[2px]">股</span>
+                            </span>
                           </span>
                         </div>
                         <div className="plan-meta text-[10px] text-[#999]">

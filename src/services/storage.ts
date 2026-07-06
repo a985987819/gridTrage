@@ -4,6 +4,10 @@ import {
   STORAGE_KEY,
   LEGACY_STORAGE_KEY_V1,
 } from '../constants/presets';
+import { calcSellPrice } from '../utils/grid';
+
+/** 当前目标卖价算法版本 (用于一次性迁移已有数据) */
+const SELL_PRICE_ALGO_VERSION = 2;
 
 /** 根据预设创建一份全新的股票数据 */
 export function createFreshStockData(presetKey: string): StockData {
@@ -17,6 +21,7 @@ export function createFreshStockData(presetKey: string): StockData {
     tradeCounter: 0,
     positionIdCounter: 0,
     lastClosePrice: null,
+    sellPriceAlgoVersion: SELL_PRICE_ALGO_VERSION,
   };
 }
 
@@ -70,6 +75,21 @@ export function loadState(): AppData {
         }
         if (preset.priceFreqWindows && !data.stocks[key].config.priceFreqWindows) {
           data.stocks[key].config.priceFreqWindows = preset.priceFreqWindows;
+        }
+      });
+
+      // 兼容旧数据: 目标卖价算法升级迁移
+      // 旧版算法 sellPrice = buyPrice + cfg.gridProfit (version 缺省或 1)
+      // 新版算法 sellPrice = buyPrice + buyPrice*100/shares (version = 2)
+      // 缺省或旧版本时一次性重算所有持仓的 targetSellPrice
+      Object.keys(data.stocks).forEach((key) => {
+        const stock = data.stocks[key];
+        if (!stock.sellPriceAlgoVersion || stock.sellPriceAlgoVersion < SELL_PRICE_ALGO_VERSION) {
+          stock.positions = stock.positions.map((p) => ({
+            ...p,
+            targetSellPrice: calcSellPrice(p.buyPrice, p.shares),
+          }));
+          stock.sellPriceAlgoVersion = SELL_PRICE_ALGO_VERSION;
         }
       });
     } else {
