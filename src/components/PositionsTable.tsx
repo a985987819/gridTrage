@@ -39,18 +39,70 @@ export function PositionsTable({
   onDelete,
 }: PositionsTableProps) {
   const cfg = stock.config;
-  const sorted = [...stock.positions].sort(
-    (a, b) => a.targetSellPrice - b.targetSellPrice,
-  );
+
+  // 排序状态: 默认按买入日期倒序 (最新在前)
+  // sortKey: 'buyDate' | 'buyPrice' | 'targetSellPrice'
+  // sortDir: 'asc' | 'desc'
+  const [sortKey, setSortKey] = useState<'buyDate' | 'buyPrice' | 'targetSellPrice'>('buyDate');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (key: 'buyDate' | 'buyPrice' | 'targetSellPrice') => {
+    if (sortKey === key) {
+      // 同列: 切换方向
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      // 新列: buyDate 默认 desc (最新在前), 价格列默认 asc (低到高)
+      setSortKey(key);
+      setSortDir(key === 'buyDate' ? 'desc' : 'asc');
+    }
+  };
+
+  const sorted = [...stock.positions].sort((a, b) => {
+    let cmp = 0;
+    if (sortKey === 'buyDate') {
+      cmp = a.buyDate.localeCompare(b.buyDate);
+      // 日期相同则按 id 升序保持稳定
+      if (cmp === 0) cmp = a.id - b.id;
+    } else if (sortKey === 'buyPrice') {
+      cmp = a.buyPrice - b.buyPrice;
+      if (cmp === 0) cmp = a.id - b.id;
+    } else {
+      cmp = a.targetSellPrice - b.targetSellPrice;
+      if (cmp === 0) cmp = a.id - b.id;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   const highlightSet = new Set(highlightedPosIds);
 
-  // 按目标卖价分组, 用于 hover 时查找关联买单
+  // 按目标卖价分组, 用于 hover 时查找关联买单 (基于全部持仓, 与排序无关)
   const sellPriceGroup = new Map<number, Position[]>();
-  for (const p of sorted) {
+  for (const p of stock.positions) {
     const key = Number(p.targetSellPrice.toFixed(2));
     if (!sellPriceGroup.has(key)) sellPriceGroup.set(key, []);
     sellPriceGroup.get(key)!.push(p);
   }
+
+  // 排序列头样式与图标
+  const renderSortHeader = (
+    label: string,
+    key: 'buyDate' | 'buyPrice' | 'targetSellPrice',
+    id: string,
+  ) => {
+    const active = sortKey === key;
+    const arrow = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+    return (
+      <th
+        id={id}
+        className={`sortable-th ${active ? 'sort-active' : ''}`}
+        onClick={() => handleSort(key)}
+        title={`点击按${label}排序`}
+      >
+        {label}
+        <span className="sort-arrow">{arrow}</span>
+      </th>
+    );
+  };
 
   return (
     <div className="card" id="positions-card">
@@ -61,7 +113,7 @@ export function PositionsTable({
         </span>
       </div>
       <div className="note tip">
-        悬停持仓行高亮同卖价关联买单并显示卖价详情 | 单击持仓行高亮对应卖单 | 双击任意行进入编辑模式
+        默认按买入日期倒序 | 点击"买入价/买入日期/目标卖价"表头切换排序 | 悬停高亮同卖价关联买单 | 双击行进入编辑
       </div>
       <div className="table-wrap" id="positions-table-wrap">
         <table className="data-table">
@@ -69,13 +121,13 @@ export function PositionsTable({
             <tr>
               <th>持仓ID</th>
               <th>网格层</th>
-              <th>买入价</th>
-              <th>买入日期</th>
+              {renderSortHeader('买入价', 'buyPrice', 'th-buyPrice')}
+              {renderSortHeader('买入日期', 'buyDate', 'th-buyDate')}
               <th>手数</th>
               <th>股数</th>
               <th>买入成本</th>
               <th>买佣金</th>
-              <th>目标卖价</th>
+              {renderSortHeader('目标卖价', 'targetSellPrice', 'th-targetSellPrice')}
               <th>预期卖收入</th>
               <th>预期盈利</th>
               <th>操作</th>

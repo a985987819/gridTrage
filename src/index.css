@@ -93,6 +93,16 @@
   .data-table tr:hover {
     @apply bg-[#f8f9fb];
   }
+  /* 可排序表头 */
+  .data-table .sortable-th {
+    @apply cursor-pointer select-none hover:bg-[#eef1f5] transition-colors;
+  }
+  .data-table .sortable-th.sort-active {
+    @apply bg-[#e3f1e7] text-[#2c3e50];
+  }
+  .data-table .sort-arrow {
+    @apply text-[#5fb374] font-bold ml-1 text-[11px];
+  }
   /* 编辑态输入框: 与表格字体尺寸一致 */
   .data-table .editing {
     @apply text-[13px] px-2 py-[5px] rounded-[4px] w-[90px];
