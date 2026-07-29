@@ -171,3 +171,8 @@ export const SYNC_DATA_KEY = 'grid_sync_data';
 
 /** 本地同步 HTTP 服务器地址 */
 export const SYNC_HTTP_URL = 'http://127.0.0.1:8766';
+
+/** 上次备份时间记录 key */
+export const LAST_BACKUP_KEY = 'grid_last_backup';
+/** 备份提醒间隔天数 */
+export const BACKUP_REMIND_DAYS = 7;

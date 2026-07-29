@@ -41,8 +41,9 @@ function SingleFreqChart({
 }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
+  const resizeHandler = useRef<(() => void) | null>(null);
 
-  // 三窗口配色 (与折线图时期保持一致: 蓝/金/红)
+  // 三窗口配色 (���折线图时期保持一致: 蓝/金/红)
   const colors = ['#3b82f6', '#f5c163', '#e88a83'];
   const color = colors[colorIndex % colors.length];
 
@@ -50,16 +51,24 @@ function SingleFreqChart({
     if (!chartRef.current) return;
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
-      const handleResize = () => chartInstance.current?.resize();
-      window.addEventListener('resize', handleResize);
-      return () => {
-        window.removeEventListener('resize', handleResize);
-      };
+      resizeHandler.current = () => chartInstance.current?.resize();
+      window.addEventListener('resize', resizeHandler.current);
     }
+    // 组件卸载时清理 ECharts 实例 + resize 监听, 避免内存泄漏
+    return () => {
+      if (resizeHandler.current) {
+        window.removeEventListener('resize', resizeHandler.current);
+        resizeHandler.current = null;
+      }
+      if (chartInstance.current) {
+        chartInstance.current.dispose();
+        chartInstance.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
-    if (!chartInstance.current || !chartRef.current) return;
+    if (!chartInstance.current || chartInstance.current.isDisposed()) return;
     if (w.bins.length === 0) return;
 
     const bins = w.bins;

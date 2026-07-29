@@ -15,6 +15,12 @@ import {
  *   股票 | 日期 | 买入价 | 买入份额 | 目标售价 | 预期盈利 | 实现份数 | 实现比例 | 实现盈利 | 卖出日期 | 完成 | 买入月份 | 卖出月份 | 买入金额 | 卖出金额
  */
 
+/** 股票名称别名映射 (Excel 中简称 → 预设 stockName) */
+const STOCK_NAME_ALIASES: Record<string, string> = {
+  '安道麦': '安道麦A',
+  '安道麦a': '安道麦A',
+};
+
 /** Excel 原始行数据(数组形式, 按列索引访问) */
 export type RawExcelRow = (string | number)[];
 
@@ -55,11 +61,21 @@ export async function parseExcelFile(file: File): Promise<RawExcelRow[]> {
   return rows.slice(1).filter((r) => r && r[EXCEL_COLS.stock]);
 }
 
-/** 把日期值转为 YYYY-MM-DD */
+/** 把日期值转为 YYYY-MM-DD (支持 Date / 字符串 / Excel 序列号) */
 function normalizeDate(v: unknown): string {
   if (!v) return '';
   if (v instanceof Date) {
+    const y = v.getFullYear();
+    if (y < 2000 || y > 2100) return ''; // 无效年份
     return v.toISOString().slice(0, 10);
+  }
+  // Excel 序列号 (1900 日期系统): 46050 → 2026-01-27
+  if (typeof v === 'number' && v > 10000 && v < 100000) {
+    const excelEpoch = new Date(1899, 11, 30);
+    const d = new Date(excelEpoch.getTime() + v * 86400000);
+    const y = d.getFullYear();
+    if (y < 2000 || y > 2100) return '';
+    return d.toISOString().slice(0, 10);
   }
   const s = String(v).trim();
   // 兼容 "2026/1/28" "2026-01-28" 等
@@ -130,7 +146,9 @@ export function importExcelToAppData(
   const newStocks: Record<string, StockData> = { ...appData.stocks };
 
   for (const [stockName, groupRows] of grouped) {
-    const stockKey = nameToKey.get(stockName);
+    // 先查别名, 再查全名
+    const resolvedName = STOCK_NAME_ALIASES[stockName] || stockName;
+    const stockKey = nameToKey.get(resolvedName);
     if (!stockKey) {
       summary.skippedStocks.push(stockName);
       summary.skipped += groupRows.length;

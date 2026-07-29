@@ -73,7 +73,7 @@ export function ConfigPanel({ config, visible, onSave, onLoadPreset }: ConfigPan
             step="100"
             className="input-base w-full"
             value={form.baseShares}
-            onChange={(e) => update('baseShares', parseInt(e.target.value))}
+            onChange={(e) => update('baseShares', parseInt(e.target.value, 10))}
           />
         </ConfigField>
         <ConfigField label="初始额外资金">
@@ -91,6 +91,7 @@ export function ConfigPanel({ config, visible, onSave, onLoadPreset }: ConfigPan
             id="cfg-grid-drop"
             type="number"
             step="0.01"
+            min="0.01"
             className="input-base w-full"
             value={form.gridDrop}
             onChange={(e) => update('gridDrop', parseFloat(e.target.value))}

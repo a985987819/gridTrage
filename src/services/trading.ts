@@ -388,8 +388,7 @@ export function deleteTrade(stock: StockData, tradeId: number): StockData {
     completedTrades: stock.completedTrades.filter((t) => t.tradeId !== tradeId),
     _editingTradeId: undefined,
   };
-  recalcAccumulatedProfit(newStock);
-  return newStock;
+  return recalcAccumulatedProfit(newStock);
 }
 
 /** 保存交易编辑 */
@@ -434,18 +433,22 @@ export function saveTradeEdit(
     completedTrades: newTrades,
     _editingTradeId: undefined,
   };
-  recalcAccumulatedProfit(newStock);
-  return { stock: newStock, toast: { type: 'success', msg: '交易已更新' } };
+  const recalc = recalcAccumulatedProfit(newStock);
+  return { stock: recalc, toast: { type: 'success', msg: '交易已更新' } };
 }
 
-/** 重新计算累计盈利 */
-export function recalcAccumulatedProfit(stock: StockData): void {
+/** 重新计算累计盈利 (返回新对象, 不修改原对象) */
+export function recalcAccumulatedProfit(stock: StockData): StockData {
   let acc = 0;
-  stock.completedTrades.forEach((t) => {
+  const newTrades = stock.completedTrades.map((t) => {
     acc += t.profit;
-    t.accumulatedProfit = Number(acc.toFixed(2));
+    return { ...t, accumulatedProfit: Number(acc.toFixed(2)) };
   });
-  stock.accumulatedProfit = Number(acc.toFixed(2));
+  return {
+    ...stock,
+    completedTrades: newTrades,
+    accumulatedProfit: Number(acc.toFixed(2)),
+  };
 }
 
 /** 保存配置 */

@@ -4,6 +4,7 @@ interface HeaderProps {
   config: StockConfig;
   syncFileLabel: string;
   syncFileColor: 'green' | 'yellow' | 'default';
+  showBackupReminder: boolean;
   onToggleConfig: () => void;
   onLinkSyncFile: () => void;
   onExportSyncFile: () => void;
@@ -18,6 +19,7 @@ export function Header({
   config,
   syncFileLabel,
   syncFileColor,
+  showBackupReminder,
   onToggleConfig,
   onLinkSyncFile,
   onExportSyncFile,
@@ -41,6 +43,11 @@ export function Header({
       <div>
         <h1 id="app-title" className="text-xl">
           网格交易记账工具
+          {showBackupReminder && (
+            <span className="ml-2 inline-block bg-[#f39c12] text-white text-xs px-2 py-0.5 rounded-full align-middle font-normal">
+              请备份
+            </span>
+          )}
         </h1>
         <div id="header-sub" className="header-sub text-xs opacity-70 mt-1">
           {config.stockName}({config.stockCode}) | 基准价: {config.basePrice} | 网格:{' '}

@@ -46,14 +46,14 @@ async function idbLoadHandle(): Promise<FileSystemFileHandle | null> {
 async function idbClearHandle(): Promise<void> {
   try {
     const db = await idbOpen();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const tx = db.transaction('handles', 'readwrite');
       tx.objectStore('handles').delete('syncFile');
       tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.warn('[Sync] 清除 FileHandle 失败:', e);
   }
 }
 
@@ -189,8 +189,8 @@ async function syncToFile(data: SyncSummary): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-  } catch {
-    /* 静默失败 */
+  } catch (e) {
+    console.warn('[Sync] HTTP 同步失败:', e);
   }
 }
 
@@ -266,8 +266,8 @@ export async function autoSyncExport(appData: AppData): Promise<void> {
     const summary = buildSyncSummary(appData);
     localStorage.setItem(SYNC_DATA_KEY, JSON.stringify(summary));
     await syncToFile(summary);
-  } catch {
-    /* 静默失败 */
+  } catch (e) {
+    console.warn('[Sync] 自动同步失败:', e);
   }
 }
 

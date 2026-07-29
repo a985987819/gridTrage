@@ -373,7 +373,7 @@ function EditablePositionRow({
           step="1"
           id={`edit-pos-lots-${pos.id}`}
           value={lots}
-          onChange={(e) => setLots(parseInt(e.target.value))}
+          onChange={(e) => setLots(parseInt(e.target.value, 10))}
           className="editing border border-[#f39c12] bg-white"
         />
       </td>

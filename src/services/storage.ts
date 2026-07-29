@@ -3,8 +3,11 @@ import {
   STOCK_PRESETS,
   STORAGE_KEY,
   LEGACY_STORAGE_KEY_V1,
+  LAST_BACKUP_KEY,
+  BACKUP_REMIND_DAYS,
 } from '../constants/presets';
 import { calcSellPrice, gridLevelOf } from '../utils/grid';
+import { saveSnapshot, loadSnapshot, validateAppData } from './idb-storage';
 
 /** 当前目标卖价算法版本 (用于一次性迁移已有数据) */
 const SELL_PRICE_ALGO_VERSION = 2;
@@ -42,41 +45,77 @@ export function createDefaultAppData(): AppData {
   };
 }
 
-/** 持久化保存到 localStorage */
+/** 持久化保存到 localStorage (同时写入 IndexedDB 冗余备份) */
 export function saveState(data: AppData): void {
   try {
+    // 写入前校验数据完整性
+    if (!validateAppData(data)) {
+      console.error('[Storage] 数据完整性校验失败, 拒绝写入');
+      return;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    // 异步写入 IndexedDB 备份 (不阻塞主流程)
+    saveSnapshot(data).catch(() => {});
   } catch (e) {
-    // 静默失败
+    console.warn('[Storage] localStorage 写入失败:', e);
   }
 }
 
 /**
  * 从 localStorage 读取数据, 兼容 v1 旧版本数据迁移
+ * 当 localStorage 损坏或为空时, 自动从 IndexedDB 恢复
  */
 export function loadState(): AppData {
+  // 先尝试从 localStorage 加载
+  let data = tryLoadFromLocalStorage();
+  if (data) return data;
+
+  // localStorage 为空/损坏 → 尝试从 IndexedDB 恢复
+  console.warn('[Storage] localStorage 数据无效, 尝试从 IndexedDB 恢复...');
+  // IndexedDB 恢复是异步的, 但 loadState 必须是同步的
+  // 采用同步降级策略: 先返回默认数据, 后台异步恢复
+  data = createDefaultAppData();
+
+  // 异步从 IndexedDB 恢复 (下次渲染生效)
+  loadSnapshot().then((recovered) => {
+    if (recovered && validateAppData(recovered)) {
+      console.info('[Storage] 已从 IndexedDB 恢复数据');
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(recovered));
+      // 触发页面重新加载使恢复的数据生效
+      window.location.reload();
+    } else {
+      console.warn('[Storage] IndexedDB 中也没有有效数据, 使用默认数据');
+    }
+  });
+
+  return data;
+}
+
+/** 尝试从 localStorage 加载数据, 失败返回 null */
+function tryLoadFromLocalStorage(): AppData | null {
   const data = createDefaultAppData();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const loaded = JSON.parse(raw) as Partial<AppData>;
+      if (!validateAppData(loaded)) {
+        console.warn('[Storage] localStorage 数据结构校验失败');
+        return null;
+      }
       if (loaded.currentStockKey) data.currentStockKey = loaded.currentStockKey;
       if (loaded.stocks) {
-        // 保留两个预设的默认值, 然后用 localStorage 中的数据覆盖
         for (const key of Object.keys(loaded.stocks) as Array<keyof typeof loaded.stocks>) {
           data.stocks[key as string] = loaded.stocks[key];
         }
       }
       if (!data.stocks.liugong) data.stocks.liugong = createFreshStockData('liugong');
-      // 补全所有预设, 旧版本 localStorage 中可能缺新预设
+      // 补全所有预设
       Object.keys(STOCK_PRESETS).forEach((key) => {
         if (!data.stocks[key]) data.stocks[key] = createFreshStockData(key);
       });
       if (!data.currentStockKey) data.currentStockKey = 'liugong';
 
-      // 兼容旧数据: 从预设补全后续新增的统计字段 (priceStats / priceFreqWindows)
-      // localStorage 中存储的 config 可能是旧版本, 不含新增字段, 需以预设为准
-      // stockName / stockCode 等标识字段也以预设为准 (如改名后同步)
+      // 从预设补全统计字段
       Object.keys(data.stocks).forEach((key) => {
         const preset = STOCK_PRESETS[key];
         if (!preset) return;
@@ -90,10 +129,7 @@ export function loadState(): AppData {
         }
       });
 
-      // 兼容旧数据: 目标卖价算法升级迁移
-      // 旧版算法 sellPrice = buyPrice + cfg.gridProfit (version 缺省或 1)
-      // 新版算法 sellPrice = buyPrice + buyPrice*100/shares (version = 2)
-      // 缺省或旧版本时一次性重算所有持仓的 targetSellPrice
+      // 目标卖价算法升级迁移
       Object.keys(data.stocks).forEach((key) => {
         const stock = data.stocks[key];
         if (!stock.sellPriceAlgoVersion || stock.sellPriceAlgoVersion < SELL_PRICE_ALGO_VERSION) {
@@ -105,10 +141,7 @@ export function loadState(): AppData {
         }
       });
 
-      // 兼容旧数据: 策略参数升级迁移
-      // 旧版策略各股票 gridDrop/baseBuyAmount 不同 (version 缺省或 1)
-      // 新版策略统一 gridDrop=0.5, baseBuyAmount=6000 (version = 2)
-      // 缺省或旧版本时一次性同步预设策略参数并重算持仓 gridLevel
+      // 策略参数升级迁移
       Object.keys(data.stocks).forEach((key) => {
         const stock = data.stocks[key];
         const preset = STOCK_PRESETS[key];
@@ -120,7 +153,6 @@ export function loadState(): AppData {
           stock.config.baseShares = preset.baseShares;
           stock.config.gridProfit = preset.gridProfit;
           stock.config.startCapital = preset.startCapital;
-          // 重算持仓的 gridLevel (因为 gridDrop 变了)
           stock.positions = stock.positions.map((p) => ({
             ...p,
             gridLevel: gridLevelOf(p.buyPrice, stock.config),
@@ -128,8 +160,8 @@ export function loadState(): AppData {
           stock.strategyVersion = STRATEGY_VERSION;
         }
       });
+      return data;
     } else {
-      // 尝试从 v1 迁移
       const v1raw = localStorage.getItem(LEGACY_STORAGE_KEY_V1);
       if (v1raw) {
         const v1 = JSON.parse(v1raw);
@@ -143,10 +175,33 @@ export function loadState(): AppData {
           positionIdCounter: v1.positionIdCounter ?? 0,
           lastClosePrice: null,
         };
+        return data;
       }
     }
   } catch (e) {
-    console.error('loadState error', e);
+    console.error('[Storage] loadState 异常:', e);
+    return null;
   }
-  return data;
+  return null;
+}
+
+/** 记录备份时间 (JSON/Excel 导出后调用) */
+export function recordBackupTime(): void {
+  try {
+    localStorage.setItem(LAST_BACKUP_KEY, Date.now().toString());
+  } catch {}
+}
+
+/** 检查是否需要备份提醒 (> BACKUP_REMIND_DAYS 天未导出) */
+export function shouldRemindBackup(): boolean {
+  try {
+    const raw = localStorage.getItem(LAST_BACKUP_KEY);
+    if (!raw) return true; // 从未备份
+    const last = parseInt(raw, 10);
+    if (isNaN(last)) return true;
+    const daysSince = (Date.now() - last) / (1000 * 60 * 60 * 24);
+    return daysSince > BACKUP_REMIND_DAYS;
+  } catch {
+    return false;
+  }
 }

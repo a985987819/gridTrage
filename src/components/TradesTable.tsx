@@ -208,7 +208,7 @@ function EditableTradeRow({ trade: t, onCancelEdit, onSaveEdit }: EditableTradeR
           step="1"
           id={`edit-trade-lots-${t.tradeId}`}
           value={lots}
-          onChange={(e) => setLots(parseInt(e.target.value))}
+          onChange={(e) => setLots(parseInt(e.target.value, 10))}
           className="editing border border-[#f39c12] bg-white"
         />
       </td>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AppData, ToastType } from './types';
 import { STOCK_PRESETS } from './constants/presets';
-import { loadState, saveState, createFreshStockData } from './services/storage';
+import { loadState, saveState, createFreshStockData, recordBackupTime, shouldRemindBackup } from './services/storage';
 import {
   executeBuy,
   executeSell,
@@ -31,9 +31,13 @@ import { ConfigPanel } from './components/ConfigPanel';
 import { OverviewGrid } from './components/OverviewGrid';
 import { ZoneAnalysis } from './components/ZoneAnalysis';
 import { OperationPanel } from './components/OperationPanel';
+import { PendingSellSummary } from './components/PendingSellSummary';
 import { PlanGrid } from './components/PlanGrid';
 import { PositionsTable } from './components/PositionsTable';
 import { TradesTable } from './components/TradesTable';
+import { MonthlyStats } from './components/MonthlyStats';
+import { CapitalChart } from './components/CapitalChart';
+import { TradeCalendar } from './components/TradeCalendar';
 
 /** 应用根组件: 状态管理 + 视图编排 */
 export default function App() {
@@ -58,6 +62,14 @@ export default function App() {
   const excelInputRef = useRef<HTMLInputElement>(null);
   // 卖单 hover 时高亮的关联买单ID集合
   const [highlightedPosIds, setHighlightedPosIds] = useState<number[]>([]);
+  // 备份提醒状态
+  const [showBackupReminder, setShowBackupReminder] = useState(shouldRemindBackup());
+  // 始终持有最新 appData 引用 (解决过期闭包)
+  const appDataRef = useRef(appData);
+  appDataRef.current = appData;
+  // 运行时配置快照 (与模块级 STOCK_PRESETS 区分, handleSaveConfig 修改此快照)
+  const runtimeConfigs = useRef(new Map(Object.entries(STOCK_PRESETS)));
+  runtimeConfigs.current = new Map(Object.entries(STOCK_PRESETS));
 
   // 暴露给 window 以便调试
   useEffect(() => {
@@ -256,6 +268,8 @@ export default function App() {
   /** 导出 Excel (多 sheet: 概览/持仓/已完成交易/今日挂单) */
   const handleExportExcel = () => {
     exportAppDataToExcel(appData, showToast);
+    recordBackupTime();
+    setShowBackupReminder(false);
   };
 
   /** 切换配置面板显示 */
@@ -264,13 +278,14 @@ export default function App() {
   /** 保存配置 */
   const handleSaveConfig = (newConfig: typeof stock.config) => {
     updateCurrentStock((prev) => saveStockConfig(prev, newConfig));
-    // 同步覆盖预设
-    STOCK_PRESETS[appData.currentStockKey] = {
-      ...STOCK_PRESETS[appData.currentStockKey],
+    // 同步覆盖运行时配置快照 (不修改模块级 STOCK_PRESETS 常量)
+    const key = appData.currentStockKey;
+    runtimeConfigs.current.set(key, {
+      ...(STOCK_PRESETS[key] || {}),
       ...newConfig,
-    };
+    });
     setConfigVisible(false);
-    showToast('参数已保存并覆盖预设', 'success');
+    showToast('参数已保存', 'success');
   };
 
   /** 载入预设 */
@@ -323,7 +338,8 @@ export default function App() {
         `检测到 ${rows.length} 条记录。导入将替换匹配股票的全部数据(持仓+已完成交易), 并按新算法重算卖价 (shares*(sell-buy)=buy*100, x.x1买/x.x8卖), 是否继续?`,
         async () => {
           try {
-            const { data: newData, summary } = importExcelToAppData(appData, rows);
+            // 使用 ref 获取最新 appData, 避免过期闭包覆盖期间变更
+            const { data: newData, summary } = importExcelToAppData(appDataRef.current, rows);
             setAppData(newData);
             saveState(newData);
 
@@ -386,6 +402,8 @@ export default function App() {
     a.download = `grid_trading_${appData.currentStockKey}_${todayStr()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    recordBackupTime();
+    setShowBackupReminder(false);
     showToast('数据已导出', 'success');
   };
 
@@ -478,6 +496,7 @@ export default function App() {
         config={stock.config}
         syncFileLabel={syncFileLabel}
         syncFileColor={syncFileColor}
+        showBackupReminder={showBackupReminder}
         onToggleConfig={toggleConfig}
         onLinkSyncFile={handleLinkSyncFile}
         onExportSyncFile={() => exportSyncFile(showToast)}
@@ -495,7 +514,10 @@ export default function App() {
       <div className="mb-4">
         <OverviewGrid stock={stock} />
       </div>
+      <MonthlyStats stock={stock} />
+      <CapitalChart stock={stock} />
       <ZoneAnalysis stock={stock} onLastCloseChange={setLastClose} />
+      <PendingSellSummary stock={stock} />
       <OperationPanel
         stock={stock}
         onExecuteBuy={handleExecuteBuy}
@@ -510,6 +532,7 @@ export default function App() {
         onLinkSell={handleLinkSell}
         onBatchSell={handleBatchSell}
       />
+      <TradeCalendar stock={stock} />
       <PositionsTable
         stock={stock}
         onQuickSell={quickSell}

@@ -6,6 +6,7 @@ import type { StockConfig, SuggestLots, StockData } from '../types';
 
 /** 根据买入价计算对应的网格层级 */
 export function gridLevelOf(price: number, cfg: StockConfig): number {
+  if (cfg.gridDrop <= 0) return 0;
   return Math.round((cfg.basePrice - price) / cfg.gridDrop);
 }
 
@@ -14,6 +15,7 @@ export function gridLevelOf(price: number, cfg: StockConfig): number {
  * 例如 9.91, 10.01, 10.11
  */
 export function forceBuyPrice(price: number): number {
+  if (!Number.isFinite(price)) return 0;
   return Number((Math.floor(price * 10) / 10 + 0.01).toFixed(2));
 }
 
@@ -22,6 +24,7 @@ export function forceBuyPrice(price: number): number {
  * 例如 10.48, 10.58, 10.68
  */
 export function forceSellPrice(price: number): number {
+  if (!Number.isFinite(price)) return 0;
   return Number((Math.floor(price * 10) / 10 + 0.08).toFixed(2));
 }
 

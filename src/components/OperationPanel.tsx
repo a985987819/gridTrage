@@ -37,7 +37,7 @@ export function OperationPanel({
 
   const handleBuy = () => {
     const p = parseFloat(buyPrice);
-    const l = parseInt(buyLots);
+    const l = parseInt(buyLots, 10);
     onExecuteBuy(p, l, buyDate);
     setBuyPrice('');
     setBuyLots('');
