@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { StockData } from '../types';
-import { fmt, fmtMoney } from '../utils/format';
-import { buildBuyPlan, buildSellPlan } from '../services/trading';
+import { buildCapitalPressure, buildSellPlan, buildTodayBuyOrders } from '../services/trading';
+import { fmtMoney } from '../utils/format';
 
 interface PlanGridProps {
   stock: StockData;
@@ -12,7 +12,6 @@ interface PlanGridProps {
   onBatchSell: (posIds: number[], sellPrice: number) => void;
 }
 
-/** 自动规划: 买单 & 卖单 (各前5笔) - 卖单可关联多个买单 */
 export function PlanGrid({
   stock,
   onQuickBuy,
@@ -21,23 +20,22 @@ export function PlanGrid({
   onLinkSell,
   onBatchSell,
 }: PlanGridProps) {
-  const cfg = stock.config;
-  const buyPlans = buildBuyPlan(stock);
+  const buyPlans = buildTodayBuyOrders(stock);
   const sellPlans = buildSellPlan(stock);
+  const capitalPressure = buildCapitalPressure(stock);
 
-  // 关联编辑状态: 正在编辑的卖价 + 当前选中的持仓ID集合 + 可编辑的卖价输入
-  const [editingKey, setEditingKey] = useState<number | null>(null);
+  const [editingPrice, setEditingPrice] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [editSellPrice, setEditSellPrice] = useState<number>(0);
 
   const startEdit = (sellPrice: number, posIds: number[]) => {
-    setEditingKey(sellPrice);
+    setEditingPrice(sellPrice);
     setSelectedIds(posIds);
     setEditSellPrice(sellPrice);
   };
 
   const cancelEdit = () => {
-    setEditingKey(null);
+    setEditingPrice(null);
     setSelectedIds([]);
   };
 
@@ -47,68 +45,50 @@ export function PlanGrid({
   };
 
   const toggleId = (id: number) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
   return (
     <div className="card" id="plan-grid-card">
       <div className="card-title">
-        自动规划: 买单 &amp; 卖单 (各前5笔){' '}
-        <span className="badge" id="plan-grid-badge">
-          hover 卖单高亮关联买单
-        </span>
+        明日可买 / 明日可卖
+        <span className="badge">以 2026-07-30 的收盘数据为基准生成下一交易日挂单</span>
       </div>
-      <div className="note" id="plan-note">
-        买单: 从当前最深网格层向下每{cfg.gridDrop}元规划; 卖单:
-        按目标卖价分组, 可关联多个买单 (数量/盈利合并计算)。鼠标悬停卖单可在下方持仓明细高亮关联买单。
+      <div className="note warn" id="plan-note">
+        当前已部署 {(capitalPressure.deployedRatio * 100).toFixed(0)}% 资金，剩余可覆盖 {capitalPressure.remainingGridSlots} 档。
+        “明日可买”优先看更靠前的低位档，“明日可卖”直接展示按“份数+1”推导出的目标卖价链条。
       </div>
-      <div className="plan-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* 建议买单 */}
-        <div className="plan-box buy-plan rounded-[8px] overflow-hidden border border-[#eee]" id="buy-plan-box">
-          <div className="plan-header bg-gradient-to-br from-[#e88a83] to-[#c97168] text-white px-[14px] py-[10px] font-semibold text-[13px] flex justify-between items-center">
-            <span>建议买单</span>
-            <span className="text-[11px] opacity-80" id="buy-plan-subtitle">
-              向下每{cfg.gridDrop}元
-            </span>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="rounded-[10px] border border-[#f4d4d1] overflow-hidden">
+          <div className="bg-gradient-to-r from-[#f5b5ad] to-[#e88a83] px-4 py-3 text-white">
+            <div className="text-[15px] font-semibold">明日可买</div>
+            <div className="text-[11px] opacity-90">从昨收往下寻找未占用档位</div>
           </div>
-          <div className="plan-body" id="buy-plan-body">
+          <div>
             {buyPlans.length === 0 ? (
-              <div className="plan-empty-warn p-5 text-center text-[#c97168] text-[13px] font-semibold bg-[#fef7f6]">
-                没有可执行的推荐买单 (超出±10%涨跌限制或无可用网格层)
-              </div>
+              <div className="p-5 text-center text-[#c97168]">暂无可执行买单</div>
             ) : (
-              buyPlans.map((p, i) => (
+              buyPlans.map((plan, index) => (
                 <div
-                  key={p.level}
-                  className={`plan-item flex justify-between items-center px-[14px] py-[10px] border-b border-[#f5f5f5] text-xs ${
-                    i === 0 ? 'bg-[#fffde6]' : ''
-                  }`}
+                  key={plan.level}
+                  className={`border-b border-[#f7e6e3] px-4 py-3 ${index === 0 ? 'bg-[#fff6f4]' : 'bg-white'}`}
                 >
-                  <div className="plan-left flex flex-col gap-[2px] flex-1">
-                    <div className="plan-price text-[15px] font-bold text-[#c97168] tabular">
-                      {fmt(p.price)} <span className="text-[11px] text-[#999]">买</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[16px] font-bold text-[#c97168]">
+                        {plan.price.toFixed(2)} 元
+                        <span className="ml-2 rounded-full bg-[#fde4e0] px-2 py-1 text-[10px] font-semibold text-[#b85c53]">
+                          档位 #{plan.level}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[12px] text-[#6b7280]">
+                        建议 {plan.suggest.total} 手 = 基础 {plan.suggest.base} 手 + 盈利复投 {plan.suggest.extra} 手
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#9a6a63]">
+                        预计占用 {fmtMoney(plan.cost)}，买入后目标卖价会按“份数+1”自动计算
+                      </div>
                     </div>
-                    <div className="plan-meta text-[10px] text-[#999]">
-                      网格层 #{p.level} | 基础{p.suggest.base}手+利润{p.suggest.extra}手 | 需
-                      <span className="text-[#c97168] font-bold text-[11px]">
-                        {fmtMoney(p.cost)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="plan-right flex items-center gap-2">
-                    <span className="plan-lots text-[16px] font-bold text-[#c97168] tabular px-[6px] py-[2px] rounded-[4px] bg-[#fbeae7]">
-                      {p.suggest.total}
-                      <span className="text-[10px] font-normal ml-[2px]">手</span>
-                    </span>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onQuickBuy(p.price, p.suggest.total);
-                      }}
-                    >
+                    <button className="btn btn-danger btn-sm" onClick={() => onQuickBuy(plan.price, plan.suggest.total)}>
                       买入
                     </button>
                   </div>
@@ -118,152 +98,92 @@ export function PlanGrid({
           </div>
         </div>
 
-        {/* 建议卖单 (分组) */}
-        <div className="plan-box sell-plan rounded-[8px] overflow-hidden border border-[#eee]" id="sell-plan-box">
-          <div className="plan-header bg-gradient-to-br from-[#7dc88f] to-[#5fb374] text-white px-[14px] py-[10px] font-semibold text-[13px] flex justify-between items-center">
-            <span>建议卖单</span>
-            <span className="text-[11px] opacity-80" id="sell-plan-subtitle">
-              买入价+{cfg.gridProfit}
-            </span>
+        <div className="rounded-[10px] border border-[#d6eadc] overflow-hidden">
+          <div className="bg-gradient-to-r from-[#8fddb0] to-[#5fb374] px-4 py-3 text-white">
+            <div className="text-[15px] font-semibold">明日可卖</div>
+            <div className="text-[11px] opacity-90">同一卖价可合并多笔持仓统一挂出</div>
           </div>
-          <div className="plan-body" id="sell-plan-body">
+          <div>
             {sellPlans.length === 0 ? (
-              <div className="plan-empty-warn p-5 text-center text-[#c97168] text-[13px] font-semibold bg-[#fef7f6]">
-                没有可执行的推荐卖单 (持仓目标卖价均超出+10%涨跌限制或无持仓)
-              </div>
+              <div className="p-5 text-center text-[#5fb374]">暂无可执行卖单</div>
             ) : (
-              sellPlans.map((g, i) => {
-                const priceKey = Number(g.sellPrice.toFixed(2));
-                const isEditing = editingKey === priceKey;
-                const posIds = g.positions.map((p) => p.id);
+              sellPlans.map((group, index) => {
+                const priceKey = Number(group.sellPrice.toFixed(2));
+                const isEditing = editingPrice === priceKey;
+                const posIds = group.positions.map((item) => item.id);
+                const nextBuyLots = Math.floor(group.totalProfit / (group.positions[0]?.buyPrice ?? 1) / 100) + 1;
                 return (
-                  <div key={priceKey} id={`sell-plan-group-${g.sellPrice.toFixed(2)}`}>
+                  <div key={priceKey} className={`border-b border-[#ebf6ef] ${index === 0 ? 'bg-[#f7fff9]' : 'bg-white'}`}>
                     <div
-                      className={`plan-item flex justify-between items-center px-[14px] py-[10px] border-b border-[#f5f5f5] text-xs cursor-pointer hover:bg-[#f0f7ff] ${
-                        i === 0 ? 'bg-[#fffde6]' : ''
-                      }`}
+                      className="cursor-pointer px-4 py-3 hover:bg-[#f2fbf5]"
                       onMouseEnter={() => onHoverSell(posIds)}
                       onMouseLeave={onHoverSellEnd}
                     >
-                      <div className="plan-left flex flex-col gap-[2px] flex-1">
-                        <div className="plan-price text-[15px] font-bold text-[#5fb374] tabular">
-                          {fmt(g.sellPrice)} <span className="text-[11px] text-[#999]">卖</span>
-                          <span className="ml-2 text-[10px] text-[#888] font-normal">
-                            关联 {g.positions.length}笔 ·{' '}
-                            <span className="text-[16px] font-bold text-[#5fb374] px-[4px] py-[1px] rounded-[4px] bg-[#e3f1e7] align-middle">
-                              {g.totalShares}
-                              <span className="text-[10px] font-normal ml-[2px]">股</span>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[16px] font-bold text-[#35915b]">
+                            {group.sellPrice.toFixed(2)} 元
+                            <span className="ml-2 rounded-full bg-[#dff4e6] px-2 py-1 text-[10px] font-semibold text-[#3f8158]">
+                              {group.totalShares} 股
                             </span>
-                          </span>
+                          </div>
+                          <div className="mt-1 text-[12px] text-[#5f6b66]">
+                            {group.positions.length} 笔联动，买入链：{group.positions.map((item) => `#${item.id}@${item.buyPrice.toFixed(2)}`).join(' / ')}
+                          </div>
+                          <div className="mt-1 rounded-[8px] bg-[#eef9f1] px-3 py-2 text-[11px] text-[#35724a]">
+                            卖出后预计盈利 {fmtMoney(group.totalProfit)}，可在下一轮按低位价多买约 {Math.max(nextBuyLots, 1)} 手
+                          </div>
                         </div>
-                        <div className="plan-meta text-[10px] text-[#999]">
-                          买单{' '}
-                          {g.positions
-                            .map((p) => `#${p.id}@${fmt(p.buyPrice)}`)
-                            .join(' / ')}{' '}
-                          | 预期盈利
-                          {g.totalProfit >= 0 ? '+' : ''}
-                          {fmtMoney(g.totalProfit)}
+                        <div className="flex gap-2">
+                          <button className="btn btn-edit btn-sm" onClick={() => (isEditing ? cancelEdit() : startEdit(priceKey, posIds))}>
+                            {isEditing ? '收起' : '关联'}
+                          </button>
+                          <button className="btn btn-success btn-sm" onClick={() => onBatchSell(posIds, group.sellPrice)}>
+                            卖出
+                          </button>
                         </div>
-                      </div>
-                      <div className="plan-right flex items-center gap-2">
-                        <button
-                          className="btn btn-edit btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isEditing) cancelEdit();
-                            else startEdit(priceKey, posIds);
-                          }}
-                        >
-                          {isEditing ? '收起' : '关联'}
-                        </button>
-                        <button
-                          className="btn btn-success btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onBatchSell(posIds, g.sellPrice);
-                          }}
-                        >
-                          卖出
-                        </button>
                       </div>
                     </div>
 
-                    {/* 关联编辑面板 */}
                     {isEditing && (
-                      <div
-                        className="sell-link-editor bg-[#fafcff] border-b border-[#e0e8f5] px-[14px] py-[10px] text-xs"
-                        id={`sell-link-editor-${g.sellPrice.toFixed(2)}`}
-                      >
-                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <label className="text-[11px] text-[#555] font-semibold">
-                            卖价:
-                          </label>
+                      <div className="border-t border-[#e0eee4] bg-[#fbfefc] px-4 py-3">
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-[#4f5f57]">统一卖价</span>
                           <input
                             type="number"
                             step="0.01"
-                            id={`edit-sell-price-${g.sellPrice.toFixed(2)}`}
                             value={editSellPrice}
-                            onChange={(e) =>
-                              setEditSellPrice(parseFloat(e.target.value) || 0)
-                            }
-                            className="editing border border-[#f39c12] bg-white w-[90px] px-1 py-[2px]"
+                            onChange={(e) => setEditSellPrice(parseFloat(e.target.value) || 0)}
+                            className="input-base w-[100px]"
                           />
-                          <span className="text-[10px] text-[#999]">
-                            勾选要关联到此卖价的买单 (未勾选且原属此卖价的买单回归默认卖价)
-                          </span>
                         </div>
-                        <div className="max-h-[180px] overflow-y-auto border border-[#eee] rounded">
-                          {stock.positions.length === 0 ? (
-                            <div className="p-2 text-center text-[#bbb]">无持仓</div>
-                          ) : (
-                            stock.positions.map((p) => {
-                              const checked = selectedIds.includes(p.id);
-                              return (
-                                <label
-                                  key={p.id}
-                                  className={`flex items-center gap-2 px-2 py-1 border-b border-[#f5f5f5] cursor-pointer hover:bg-[#f0f7ff] ${
-                                    checked ? 'bg-[#fffde6]' : ''
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleId(p.id)}
-                                  />
-                                  <span className="tabular">
-                                    #{p.id} 买{fmt(p.buyPrice)}元 · {p.lots}手
-                                  </span>
-                                  <span className="text-[10px] text-[#999]">
-                                    当前卖价 {fmt(p.targetSellPrice)}
-                                  </span>
-                                </label>
-                              );
-                            })
-                          )}
+                        <div className="rounded-[8px] border border-[#e6f1ea]">
+                          {stock.positions.map((position) => (
+                            <label
+                              key={position.id}
+                              className={`flex cursor-pointer items-center gap-2 border-b border-[#eef5f0] px-3 py-2 text-[12px] last:border-b-0 ${
+                                selectedIds.includes(position.id) ? 'bg-[#eef9f1]' : 'bg-white'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(position.id)}
+                                onChange={() => toggleId(position.id)}
+                              />
+                              <span className="flex-1">
+                                #{position.id} · 买 {position.buyPrice.toFixed(2)} · {position.lots}手
+                              </span>
+                              <span className="text-[#7f8c8d]">当前卖价 {position.targetSellPrice.toFixed(2)}</span>
+                            </label>
+                          ))}
                         </div>
-                        <div className="flex gap-2 mt-2">
-                          <button
-                            className="btn btn-save btn-sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              saveEdit();
-                            }}
-                          >
+                        <div className="mt-3 flex gap-2">
+                          <button className="btn btn-save btn-sm" onClick={saveEdit}>
                             保存关联
                           </button>
-                          <button
-                            className="btn btn-cancel-edit btn-sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              cancelEdit();
-                            }}
-                          >
+                          <button className="btn btn-cancel-edit btn-sm" onClick={cancelEdit}>
                             取消
                           </button>
-                          <span className="text-[10px] text-[#999] self-center ml-1">
-                            已选 {selectedIds.length} 笔
-                          </span>
                         </div>
                       </div>
                     )}

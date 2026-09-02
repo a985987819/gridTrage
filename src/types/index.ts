@@ -95,6 +95,29 @@ export interface CompletedTrade {
   linkedPositionId: number;
 }
 
+/** 网格周期：一行对应一次买入，可在同一行补全卖出信息 */
+export interface GridCycle {
+  id: string;
+  cycleNumber: number;
+  gridLevel: number;
+  buyPrice: number;
+  buyDate: string;
+  buyLots: number;
+  buyShares: number;
+  buyCost: number;
+  targetSellPrice: number;
+  sellPrice: number | null;
+  sellDate: string | null;
+  sellValue: number | null;
+  profit: number | null;
+  accumulatedProfit: number | null;
+  nextCycleId: string | null;
+  prevCycleId: string | null;
+  positionId: number | null;
+  tradeId: number | null;
+  status: 'open' | 'closed';
+}
+
 /** 单只股票的全部数据 */
 export interface StockData {
   config: StockConfig;
@@ -102,6 +125,8 @@ export interface StockData {
   accumulatedProfit: number;
   positions: Position[];
   completedTrades: CompletedTrade[];
+  cycles: GridCycle[];
+  gridLevelCycleMap: Record<number, number>;
   tradeCounter: number;
   positionIdCounter: number;
   lastClosePrice: number | null;
@@ -164,6 +189,16 @@ export interface SellPlan {
 
 /** Toast 类型 */
 export type ToastType = 'info' | 'success' | 'error' | 'warn';
+
+/** 云同步状态 */
+export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
+
+/** 云同步文档格式 (整份 AppData, 用于跨设备同步/恢复) */
+export interface CloudDoc {
+  version: number;
+  exportedAt: string;
+  data: AppData;
+}
 
 /** 同步摘要数据 */
 export interface SyncSummary {

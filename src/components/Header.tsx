@@ -1,12 +1,11 @@
-import type { StockConfig } from '../types';
+import type { StockConfig, SyncStatus } from '../types';
 
 interface HeaderProps {
   config: StockConfig;
-  syncFileLabel: string;
-  syncFileColor: 'green' | 'yellow' | 'default';
+  syncStatus: SyncStatus;
   showBackupReminder: boolean;
   onToggleConfig: () => void;
-  onLinkSyncFile: () => void;
+  onOpenSyncPanel: () => void;
   onExportSyncFile: () => void;
   onExportData: () => void;
   onExportExcel: () => void;
@@ -14,26 +13,28 @@ interface HeaderProps {
   onImportExcel: () => void;
 }
 
+const SYNC_META: Record<SyncStatus, { label: string; bg: string }> = {
+  idle: { label: '云同步', bg: 'rgba(255,255,255,0.15)' },
+  syncing: { label: '同步中…', bg: 'rgba(52,152,219,0.4)' },
+  synced: { label: '已同步', bg: 'rgba(40,167,69,0.4)' },
+  error: { label: '同步出错', bg: 'rgba(232,138,131,0.4)' },
+  offline: { label: '离线', bg: 'rgba(243,156,18,0.4)' },
+};
+
 /** 顶部标题与操作按钮 */
 export function Header({
   config,
-  syncFileLabel,
-  syncFileColor,
+  syncStatus,
   showBackupReminder,
   onToggleConfig,
-  onLinkSyncFile,
+  onOpenSyncPanel,
   onExportSyncFile,
   onExportData,
   onExportExcel,
   onConfirmReset,
   onImportExcel,
 }: HeaderProps) {
-  const syncBg =
-    syncFileColor === 'green'
-      ? 'rgba(40,167,69,0.3)'
-      : syncFileColor === 'yellow'
-        ? 'rgba(255,193,7,0.3)'
-        : 'rgba(255,255,255,0.15)';
+  const sync = SYNC_META[syncStatus];
 
   return (
     <div
@@ -63,12 +64,12 @@ export function Header({
           参数设置
         </button>
         <button
-          id="btn-link-file"
-          onClick={onLinkSyncFile}
+          id="btn-open-sync"
+          onClick={onOpenSyncPanel}
           className="text-white border border-white/20 px-[14px] py-1.5 rounded-[6px] cursor-pointer text-xs hover:bg-white/25"
-          style={{ background: syncBg }}
+          style={{ background: sync.bg }}
         >
-          {syncFileLabel}
+          {sync.label}
         </button>
         <button
           id="btn-export-orders"

@@ -1,4 +1,5 @@
 import type { AppData } from '../types';
+import { getSyncUserId } from './syncIdentity';
 
 /**
  * IndexedDB 冗余备份存储
@@ -25,7 +26,7 @@ const MAX_SNAPSHOTS = 5;
 
 /** 快照条目 */
 interface SnapshotEntry {
-  id: number; // timestamp 作为 key
+  id: string; // `${uid}:${timestamp}` 作为 key，按身份隔离
   data: AppData;
   createdAt: string;
 }
@@ -55,8 +56,9 @@ export async function saveSnapshot(data: AppData): Promise<void> {
     const store = tx.objectStore(STORE_NAME);
 
     const now = Date.now();
+    const uid = getSyncUserId() || 'default';
     const entry: SnapshotEntry = {
-      id: now,
+      id: `${uid}:${now}`,
       data,
       createdAt: new Date(now).toISOString(),
     };
@@ -67,16 +69,17 @@ export async function saveSnapshot(data: AppData): Promise<void> {
       req.onerror = () => reject(req.error);
     });
 
-    // 清理旧快照: 只保留最近 MAX_SNAPSHOTS 个
-    const allKeys = await new Promise<number[]>((resolve, reject) => {
+    // 清理旧快照: 只保留当前身份最近 MAX_SNAPSHOTS 个
+    const allKeys = await new Promise<string[]>((resolve, reject) => {
       const req = store.getAllKeys();
-      req.onsuccess = () => resolve(req.result as number[]);
+      req.onsuccess = () => resolve(req.result as string[]);
       req.onerror = () => reject(req.error);
     });
 
-    if (allKeys.length > MAX_SNAPSHOTS) {
-      allKeys.sort((a, b) => b - a); // 降序
-      const toDelete = allKeys.slice(MAX_SNAPSHOTS);
+    const myKeys = allKeys.filter((k) => k.startsWith(`${uid}:`));
+    if (myKeys.length > MAX_SNAPSHOTS) {
+      myKeys.sort((a, b) => b.localeCompare(a)); // 降序
+      const toDelete = myKeys.slice(MAX_SNAPSHOTS);
       for (const key of toDelete) {
         store.delete(key);
       }
@@ -100,16 +103,17 @@ export async function loadSnapshot(): Promise<AppData | null> {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
 
+    const uid = getSyncUserId() || 'default';
     const result = await new Promise<AppData | null>((resolve, reject) => {
       const req = store.getAll();
       req.onsuccess = () => {
-        const entries = req.result as SnapshotEntry[];
+        const entries = (req.result as SnapshotEntry[]).filter((e) => e.id.startsWith(`${uid}:`));
         if (entries.length === 0) {
           resolve(null);
           return;
         }
         // 按时间降序取最新的
-        entries.sort((a, b) => b.id - a.id);
+        entries.sort((a, b) => b.id.localeCompare(a.id));
         resolve(entries[0].data);
       };
       req.onerror = () => reject(req.error);
@@ -130,14 +134,16 @@ export async function getSnapshots(): Promise<Omit<SnapshotEntry, 'data'>[]> {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
 
+    const uid = getSyncUserId() || 'default';
     const result = await new Promise<Omit<SnapshotEntry, 'data'>[]>((resolve, reject) => {
       const req = store.getAll();
       req.onsuccess = () => {
         const entries = req.result as SnapshotEntry[];
         resolve(
           entries
+            .filter((e) => e.id.startsWith(`${uid}:`))
             .map(({ id, createdAt }) => ({ id, createdAt }))
-            .sort((a, b) => b.id - a.id),
+            .sort((a, b) => b.id.localeCompare(a.id)),
         );
       };
       req.onerror = () => reject(req.error);

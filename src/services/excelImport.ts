@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import type { AppData, StockData, Position, CompletedTrade } from '../types';
 import { STOCK_PRESETS } from '../constants/presets';
 import { createFreshStockData } from './storage';
+import { ensureCycleState } from './trading';
 import {
   gridLevelOf,
   forceBuyPrice,
@@ -259,6 +260,8 @@ export function importExcelToAppData(
       ...baseStock,
       positions,
       completedTrades,
+      cycles: [],
+      gridLevelCycleMap: {},
       tradeCounter: completedTrades.length,
       positionIdCounter: positions.length,
       availableCapital: cfg.startCapital,
@@ -268,7 +271,7 @@ export function importExcelToAppData(
       // 标记为新算法版本, 避免 loadState 重复重算
       sellPriceAlgoVersion: 2,
     };
-    newStocks[stockKey] = newStock;
+    newStocks[stockKey] = ensureCycleState(newStock);
     if (!summary.stocksUpdated.includes(stockName)) {
       summary.stocksUpdated.push(stockName);
     }

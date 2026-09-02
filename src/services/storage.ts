@@ -8,6 +8,8 @@ import {
 } from '../constants/presets';
 import { calcSellPrice, gridLevelOf } from '../utils/grid';
 import { saveSnapshot, loadSnapshot, validateAppData } from './idb-storage';
+import { ensureCycleState } from './trading';
+import { storageKey } from './syncIdentity';
 
 /** 当前目标卖价算法版本 (用于一次性迁移已有数据) */
 const SELL_PRICE_ALGO_VERSION = 2;
@@ -24,6 +26,8 @@ export function createFreshStockData(presetKey: string): StockData {
     accumulatedProfit: 0,
     positions: [],
     completedTrades: [],
+    cycles: [],
+    gridLevelCycleMap: {},
     tradeCounter: 0,
     positionIdCounter: 0,
     lastClosePrice: null,
@@ -53,7 +57,7 @@ export function saveState(data: AppData): void {
       console.error('[Storage] 数据完整性校验失败, 拒绝写入');
       return;
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(storageKey(STORAGE_KEY), JSON.stringify(data));
     // 异步写入 IndexedDB 备份 (不阻塞主流程)
     saveSnapshot(data).catch(() => {});
   } catch (e) {
@@ -80,7 +84,7 @@ export function loadState(): AppData {
   loadSnapshot().then((recovered) => {
     if (recovered && validateAppData(recovered)) {
       console.info('[Storage] 已从 IndexedDB 恢复数据');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(recovered));
+      localStorage.setItem(storageKey(STORAGE_KEY), JSON.stringify(recovered));
       // 触发页面重新加载使恢复的数据生效
       window.location.reload();
     } else {
@@ -95,7 +99,7 @@ export function loadState(): AppData {
 function tryLoadFromLocalStorage(): AppData | null {
   const data = createDefaultAppData();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(STORAGE_KEY));
     if (raw) {
       const loaded = JSON.parse(raw) as Partial<AppData>;
       if (!validateAppData(loaded)) {
@@ -160,6 +164,9 @@ function tryLoadFromLocalStorage(): AppData | null {
           stock.strategyVersion = STRATEGY_VERSION;
         }
       });
+      Object.keys(data.stocks).forEach((key) => {
+        data.stocks[key] = ensureCycleState(data.stocks[key]);
+      });
       return data;
     } else {
       const v1raw = localStorage.getItem(LEGACY_STORAGE_KEY_V1);
@@ -171,10 +178,13 @@ function tryLoadFromLocalStorage(): AppData | null {
           accumulatedProfit: v1.accumulatedProfit ?? 0,
           positions: v1.positions ?? [],
           completedTrades: v1.completedTrades ?? [],
+          cycles: [],
+          gridLevelCycleMap: {},
           tradeCounter: v1.tradeCounter ?? 0,
           positionIdCounter: v1.positionIdCounter ?? 0,
           lastClosePrice: null,
         };
+        data.stocks.liugong = ensureCycleState(data.stocks.liugong);
         return data;
       }
     }
@@ -190,6 +200,25 @@ export function recordBackupTime(): void {
   try {
     localStorage.setItem(LAST_BACKUP_KEY, Date.now().toString());
   } catch {}
+}
+
+/**
+ * 启用身份时把 default 命名空间的旧数据迁入新身份命名空间。
+ * 目标命名空间已有数据时不覆盖。返回迁移的数据（无则 null）。
+ */
+export function migrateLegacyDataToIdentity(uid: string): AppData | null {
+  const targetKey = storageKey(STORAGE_KEY);
+  if (localStorage.getItem(targetKey)) return null;
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as AppData;
+    if (!validateAppData(data)) return null;
+    localStorage.setItem(targetKey, JSON.stringify(data));
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 /** 检查是否需要备份提醒 (> BACKUP_REMIND_DAYS 天未导出) */

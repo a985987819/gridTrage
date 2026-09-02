@@ -2,6 +2,7 @@ import type {
   StockData,
   Position,
   CompletedTrade,
+  GridCycle,
   BuyPlan,
   SellPlan,
   SuggestLots,
@@ -16,109 +17,305 @@ import {
   calcSuggestLots,
 } from '../utils/grid';
 
-/**
- * 交易业务逻辑: 买入/卖出/规划计算/编辑/删除等
- */
-
-/** 执行买入, 返回更新后的 stockData 以及提示信息 */
 export interface BuyResult {
   stock: StockData;
   toast: { type: 'success' | 'error' | 'warn'; msg: string };
   clearInputs: boolean;
 }
 
-export function executeBuy(
-  stock: StockData,
-  rawPrice: number,
-  lots: number,
-  date: string,
-): BuyResult {
-  const cfg = stock.config;
-  if (!rawPrice || rawPrice <= 0) {
-    return { stock, toast: { type: 'error', msg: '请输入有效买入价' }, clearInputs: false };
-  }
-  if (!lots || lots <= 0) {
-    return { stock, toast: { type: 'error', msg: '请输入有效手数' }, clearInputs: false };
-  }
-
-  // 强迫症管理: 买入价固定为 xx.x1
-  const price = forceBuyPrice(rawPrice);
-  let warnMsg: string | null = null;
-  if (price !== rawPrice) {
-    warnMsg = `买入价已自动调整: ${rawPrice} → ${price} (强迫症模式)`;
-  }
-
-  const shares = lots * 100;
-  const buyValue = shares * price;
-  const buyCommission = buyValue * cfg.commissionRate;
-  const totalCost = buyValue + buyCommission;
-
-  const newStock: StockData = { ...stock };
-  newStock.positionIdCounter = stock.positionIdCounter + 1;
-  const level = gridLevelOf(price, cfg);
-  const pos: Position = {
-    id: newStock.positionIdCounter,
-    gridLevel: level,
-    buyPrice: price,
-    buyDate: date,
-    lots,
-    shares,
-    buyCost: totalCost,
-    buyCommission,
-    targetSellPrice: calcSellPrice(price, shares),
-  };
-  newStock.positions = [...stock.positions, pos];
-
-  return {
-    stock: newStock,
-    toast: {
-      type: warnMsg ? 'warn' : 'success',
-      msg: warnMsg ?? `买入成功: ${price}元 ${lots}手, 成本${totalCost.toFixed(2)}`,
-    },
-    clearInputs: true,
-  };
-}
-
-/** 执行卖出 */
 export interface SellResult {
   stock: StockData;
   toast: { type: 'success' | 'error' | 'warn'; msg: string };
   clearInputs: boolean;
 }
 
+export interface GridLevelStat {
+  gridLevel: number;
+  referenceBuyPrice: number;
+  cycles: number;
+  closedCycles: number;
+  openCycles: number;
+  accumulatedProfit: number;
+  status: 'holding' | 'closed' | 'waiting';
+  latestCycleNumber: number;
+}
+
+export interface CapitalPressure {
+  deployedCapital: number;
+  totalCapital: number;
+  deployedRatio: number;
+  reserveCapital: number;
+  remainingGridSlots: number;
+  maxDropLevels: number;
+  warningLevel: 'safe' | 'warn' | 'danger';
+}
+
+function buildCycleId(level: number, cycleNumber: number, seed: string): string {
+  return `L${level}-C${cycleNumber}-${seed}`;
+}
+
+function sortByBuyDate<T extends { buyDate: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.buyDate.localeCompare(b.buyDate));
+}
+
+function rebuildGridLevelCycleMap(cycles: GridCycle[]): Record<number, number> {
+  return cycles.reduce<Record<number, number>>((acc, cycle) => {
+    acc[cycle.gridLevel] = Math.max(acc[cycle.gridLevel] ?? 0, cycle.cycleNumber);
+    return acc;
+  }, {});
+}
+
+function relinkCycles(cycles: GridCycle[]): GridCycle[] {
+  const byLevel = new Map<number, GridCycle[]>();
+  for (const cycle of cycles) {
+    const list = byLevel.get(cycle.gridLevel) ?? [];
+    list.push(cycle);
+    byLevel.set(cycle.gridLevel, list);
+  }
+
+  const linked = new Map<string, GridCycle>();
+  for (const list of byLevel.values()) {
+    const sorted = [...list].sort((a, b) => a.cycleNumber - b.cycleNumber || a.id.localeCompare(b.id));
+    sorted.forEach((cycle, index) => {
+      linked.set(cycle.id, {
+        ...cycle,
+        prevCycleId: index > 0 ? sorted[index - 1].id : null,
+        nextCycleId: index < sorted.length - 1 ? sorted[index + 1].id : null,
+      });
+    });
+  }
+
+  return cycles.map((cycle) => linked.get(cycle.id) ?? cycle);
+}
+
+function normalizeCycleLinks(stock: StockData): StockData {
+  const cycles = relinkCycles(stock.cycles ?? []);
+  return {
+    ...stock,
+    cycles,
+    gridLevelCycleMap: rebuildGridLevelCycleMap(cycles),
+  };
+}
+
+export function ensureCycleState(stock: StockData): StockData {
+  if (stock.cycles && stock.cycles.length > 0) {
+    return normalizeCycleLinks(stock);
+  }
+
+  const levelCounts: Record<number, number> = {};
+  const cycles: GridCycle[] = [];
+
+  for (const trade of sortByBuyDate(stock.completedTrades)) {
+    const cycleNumber = (levelCounts[trade.gridLevel] ?? 0) + 1;
+    levelCounts[trade.gridLevel] = cycleNumber;
+    cycles.push({
+      id: buildCycleId(trade.gridLevel, cycleNumber, `t${trade.tradeId}`),
+      cycleNumber,
+      gridLevel: trade.gridLevel,
+      buyPrice: trade.buyPrice,
+      buyDate: trade.buyDate,
+      buyLots: trade.buyLots,
+      buyShares: trade.buyLots * 100,
+      buyCost: trade.buyCost,
+      targetSellPrice: trade.sellPrice,
+      sellPrice: trade.sellPrice,
+      sellDate: trade.sellDate,
+      sellValue: trade.sellValue,
+      profit: trade.profit,
+      accumulatedProfit: trade.accumulatedProfit,
+      nextCycleId: null,
+      prevCycleId: null,
+      positionId: null,
+      tradeId: trade.tradeId,
+      status: 'closed',
+    });
+  }
+
+  for (const pos of sortByBuyDate(stock.positions)) {
+    const cycleNumber = (levelCounts[pos.gridLevel] ?? 0) + 1;
+    levelCounts[pos.gridLevel] = cycleNumber;
+    cycles.push({
+      id: buildCycleId(pos.gridLevel, cycleNumber, `p${pos.id}`),
+      cycleNumber,
+      gridLevel: pos.gridLevel,
+      buyPrice: pos.buyPrice,
+      buyDate: pos.buyDate,
+      buyLots: pos.lots,
+      buyShares: pos.shares,
+      buyCost: pos.buyCost,
+      targetSellPrice: pos.targetSellPrice,
+      sellPrice: null,
+      sellDate: null,
+      sellValue: null,
+      profit: null,
+      accumulatedProfit: null,
+      nextCycleId: null,
+      prevCycleId: null,
+      positionId: pos.id,
+      tradeId: null,
+      status: 'open',
+    });
+  }
+
+  return normalizeCycleLinks({
+    ...stock,
+    cycles,
+    gridLevelCycleMap: rebuildGridLevelCycleMap(cycles),
+  });
+}
+
+function refreshProfitSeries(stock: StockData): StockData {
+  let accumulatedProfit = 0;
+  const completedTrades = stock.completedTrades.map((trade) => {
+    accumulatedProfit += trade.profit;
+    return { ...trade, accumulatedProfit: Number(accumulatedProfit.toFixed(2)) };
+  });
+
+  const cycleProfitMap = new Map<number, number>();
+  for (const trade of completedTrades) {
+    cycleProfitMap.set(trade.tradeId, trade.accumulatedProfit);
+  }
+
+  const cycles = stock.cycles.map((cycle) => {
+    if (cycle.tradeId === null) return cycle;
+    return {
+      ...cycle,
+      accumulatedProfit: cycleProfitMap.get(cycle.tradeId) ?? cycle.accumulatedProfit,
+    };
+  });
+
+  return {
+    ...stock,
+    completedTrades,
+    cycles,
+    accumulatedProfit: Number(accumulatedProfit.toFixed(2)),
+  };
+}
+
+function findOpenCycleIndex(cycles: GridCycle[], positionId: number): number {
+  return cycles.findIndex((cycle) => cycle.positionId === positionId && cycle.status === 'open');
+}
+
+export function executeBuy(
+  rawStock: StockData,
+  rawPrice: number,
+  lots: number,
+  date: string,
+): BuyResult {
+  const stock = ensureCycleState(rawStock);
+  const cfg = stock.config;
+  if (!rawPrice || rawPrice <= 0) {
+    return { stock: rawStock, toast: { type: 'error', msg: '请输入有效买入价' }, clearInputs: false };
+  }
+  if (!lots || lots <= 0) {
+    return { stock: rawStock, toast: { type: 'error', msg: '请输入有效手数' }, clearInputs: false };
+  }
+
+  const price = forceBuyPrice(rawPrice);
+  let warnMsg: string | null = null;
+  if (price !== rawPrice) {
+    warnMsg = `买入价已自动调整: ${rawPrice} -> ${price} (.x1 规则)`;
+  }
+
+  const shares = lots * 100;
+  const buyValue = shares * price;
+  const buyCommission = buyValue * cfg.commissionRate;
+  const totalCost = Number((buyValue + buyCommission).toFixed(2));
+  const level = gridLevelOf(price, cfg);
+  const positionId = stock.positionIdCounter + 1;
+  const cycleNumber = (stock.gridLevelCycleMap[level] ?? 0) + 1;
+  const previousCycle = [...stock.cycles]
+    .filter((cycle) => cycle.gridLevel === level)
+    .sort((a, b) => b.cycleNumber - a.cycleNumber)[0];
+
+  const position: Position = {
+    id: positionId,
+    gridLevel: level,
+    buyPrice: price,
+    buyDate: date,
+    lots,
+    shares,
+    buyCost: totalCost,
+    buyCommission: Number(buyCommission.toFixed(2)),
+    targetSellPrice: calcSellPrice(price, shares),
+  };
+
+  const cycle: GridCycle = {
+    id: buildCycleId(level, cycleNumber, `p${positionId}`),
+    cycleNumber,
+    gridLevel: level,
+    buyPrice: price,
+    buyDate: date,
+    buyLots: lots,
+    buyShares: shares,
+    buyCost: totalCost,
+    targetSellPrice: position.targetSellPrice,
+    sellPrice: null,
+    sellDate: null,
+    sellValue: null,
+    profit: null,
+    accumulatedProfit: null,
+    prevCycleId: previousCycle?.id ?? null,
+    nextCycleId: null,
+    positionId,
+    tradeId: null,
+    status: 'open',
+  };
+
+  const nextStock = normalizeCycleLinks({
+    ...stock,
+    positionIdCounter: positionId,
+    positions: [...stock.positions, position],
+    cycles: [...stock.cycles, cycle],
+    gridLevelCycleMap: {
+      ...stock.gridLevelCycleMap,
+      [level]: cycleNumber,
+    },
+  });
+
+  return {
+    stock: nextStock,
+    toast: {
+      type: warnMsg ? 'warn' : 'success',
+      msg: warnMsg ?? `买入成功: ${price}元 ${lots}手, 成本 ${totalCost.toFixed(2)}`,
+    },
+    clearInputs: true,
+  };
+}
+
 export function executeSell(
-  stock: StockData,
+  rawStock: StockData,
   posId: number,
   sellPrice: number,
   sellLots: number,
   date: string,
 ): SellResult {
+  const stock = ensureCycleState(rawStock);
   const cfg = stock.config;
   if (!posId) {
-    return { stock, toast: { type: 'error', msg: '请选择要卖出的持仓' }, clearInputs: false };
+    return { stock: rawStock, toast: { type: 'error', msg: '请选择要卖出的持仓' }, clearInputs: false };
   }
   if (!sellPrice || sellPrice <= 0) {
-    return { stock, toast: { type: 'error', msg: '请输入有效卖出价' }, clearInputs: false };
+    return { stock: rawStock, toast: { type: 'error', msg: '请输入有效卖出价' }, clearInputs: false };
   }
   if (!sellLots || sellLots <= 0) {
-    return { stock, toast: { type: 'error', msg: '请输入有效手数' }, clearInputs: false };
+    return { stock: rawStock, toast: { type: 'error', msg: '请输入有效手数' }, clearInputs: false };
   }
 
-  // 强迫症管理: 卖出价固定为 xx.x8
   const finalSellPrice = forceSellPrice(sellPrice);
   let warnMsg: string | null = null;
   if (finalSellPrice !== sellPrice) {
-    warnMsg = `卖出价已自动调整: ${sellPrice} → ${finalSellPrice} (强迫症模式)`;
+    warnMsg = `卖出价已自动调整: ${sellPrice} -> ${finalSellPrice} (.x8 规则)`;
   }
 
-  const pos = stock.positions.find((p) => p.id === posId);
-  if (!pos) {
-    return { stock, toast: { type: 'error', msg: '持仓不存在' }, clearInputs: false };
+  const position = stock.positions.find((item) => item.id === posId);
+  if (!position) {
+    return { stock: rawStock, toast: { type: 'error', msg: '持仓不存在' }, clearInputs: false };
   }
-  if (sellLots > pos.lots) {
+  if (sellLots > position.lots) {
     return {
-      stock,
-      toast: { type: 'error', msg: `手数超过持仓(${pos.lots}手)` },
+      stock: rawStock,
+      toast: { type: 'error', msg: `卖出手数超过持仓(${position.lots}手)` },
       clearInputs: false,
     };
   }
@@ -128,78 +325,142 @@ export function executeSell(
   const sellCommission = sellValue * cfg.commissionRate;
   const stampDuty = sellValue * cfg.stampDutyRate;
   const netProceeds = sellValue - sellCommission - stampDuty;
-  const costRatio = sellLots / pos.lots;
-  const allocatedBuyCost = pos.buyCost * costRatio;
-  const profit = netProceeds - allocatedBuyCost;
-
-  const newStock: StockData = {
-    ...stock,
-    positions: [...stock.positions],
-    completedTrades: [...stock.completedTrades],
-  };
-  newStock.tradeCounter = stock.tradeCounter + 1;
-  newStock.accumulatedProfit = Number((stock.accumulatedProfit + profit).toFixed(2));
+  const costRatio = sellLots / position.lots;
+  const allocatedBuyCost = Number((position.buyCost * costRatio).toFixed(2));
+  const allocatedBuyCommission = Number((position.buyCommission * costRatio).toFixed(2));
+  const profit = Number((netProceeds - allocatedBuyCost).toFixed(2));
+  const tradeId = stock.tradeCounter + 1;
+  const holdDays = Math.round((new Date(date).getTime() - new Date(position.buyDate).getTime()) / 86400000);
 
   const trade: CompletedTrade = {
-    tradeId: newStock.tradeCounter,
-    gridLevel: pos.gridLevel,
-    buyPrice: pos.buyPrice,
-    buyDate: pos.buyDate,
+    tradeId,
+    gridLevel: position.gridLevel,
+    buyPrice: position.buyPrice,
+    buyDate: position.buyDate,
     buyLots: sellLots,
-    buyCost: Number(allocatedBuyCost.toFixed(2)),
-    buyCommission: Number((pos.buyCommission * costRatio).toFixed(2)),
+    buyCost: allocatedBuyCost,
+    buyCommission: allocatedBuyCommission,
     sellPrice: finalSellPrice,
     sellDate: date,
     sellValue: Number(sellValue.toFixed(2)),
     sellCommission: Number(sellCommission.toFixed(2)),
     stampDuty: Number(stampDuty.toFixed(2)),
     netProceeds: Number(netProceeds.toFixed(2)),
-    profit: Number(profit.toFixed(2)),
-    accumulatedProfit: newStock.accumulatedProfit,
-    holdDays: Math.round((new Date(date).getTime() - new Date(pos.buyDate).getTime()) / 86400000),
-    linkedPositionId: pos.id,
+    profit,
+    accumulatedProfit: 0,
+    holdDays,
+    linkedPositionId: position.id,
   };
-  newStock.completedTrades.push(trade);
 
-  if (sellLots === pos.lots) {
-    newStock.positions = newStock.positions.filter((p) => p.id !== posId);
-  } else {
-    newStock.positions = newStock.positions.map((p) => {
-      if (p.id !== posId) return p;
-      return {
-        ...p,
-        lots: p.lots - sellLots,
-        shares: (p.lots - sellLots) * 100,
-        buyCost: p.buyCost * (1 - costRatio),
-        buyCommission: p.buyCommission * (1 - costRatio),
+  let positions = [...stock.positions];
+  let cycles = [...stock.cycles];
+  const cycleIndex = findOpenCycleIndex(cycles, position.id);
+  const sourceCycle = cycleIndex >= 0 ? cycles[cycleIndex] : null;
+
+  if (sellLots === position.lots) {
+    positions = positions.filter((item) => item.id !== posId);
+    if (sourceCycle) {
+      cycles[cycleIndex] = {
+        ...sourceCycle,
+        buyLots: sellLots,
+        buyShares: sellShares,
+        buyCost: allocatedBuyCost,
+        sellPrice: finalSellPrice,
+        sellDate: date,
+        sellValue: Number(sellValue.toFixed(2)),
+        profit,
+        tradeId,
+        positionId: null,
+        status: 'closed',
       };
-    });
+    }
+  } else {
+    const remainingLots = position.lots - sellLots;
+    const remainingShares = remainingLots * 100;
+    const remainingBuyCost = Number((position.buyCost - allocatedBuyCost).toFixed(2));
+    const remainingBuyCommission = Number((position.buyCommission - allocatedBuyCommission).toFixed(2));
+
+    positions = positions.map((item) =>
+      item.id !== posId
+        ? item
+        : {
+            ...item,
+            lots: remainingLots,
+            shares: remainingShares,
+            buyCost: remainingBuyCost,
+            buyCommission: remainingBuyCommission,
+            targetSellPrice: calcSellPrice(item.buyPrice, remainingShares),
+          },
+    );
+
+    if (sourceCycle) {
+      cycles[cycleIndex] = {
+        ...sourceCycle,
+        buyLots: sellLots,
+        buyShares: sellShares,
+        buyCost: allocatedBuyCost,
+        sellPrice: finalSellPrice,
+        sellDate: date,
+        sellValue: Number(sellValue.toFixed(2)),
+        profit,
+        tradeId,
+        positionId: null,
+        status: 'closed',
+      };
+
+      cycles.push({
+        ...sourceCycle,
+        id: `${sourceCycle.id}-rest`,
+        buyLots: remainingLots,
+        buyShares: remainingShares,
+        buyCost: remainingBuyCost,
+        targetSellPrice: calcSellPrice(sourceCycle.buyPrice, remainingShares),
+        sellPrice: null,
+        sellDate: null,
+        sellValue: null,
+        profit: null,
+        accumulatedProfit: null,
+        positionId: position.id,
+        tradeId: null,
+        status: 'open',
+      });
+    }
   }
 
+  const nextStock = refreshProfitSeries(
+    normalizeCycleLinks({
+      ...stock,
+      positions,
+      cycles,
+      tradeCounter: tradeId,
+      completedTrades: [...stock.completedTrades, trade],
+    }),
+  );
+
   return {
-    stock: newStock,
+    stock: nextStock,
     toast: {
       type: warnMsg ? 'warn' : 'success',
-      msg: warnMsg ?? `卖出成功: ${sellPrice}元 ${sellLots}手, 盈利${profit.toFixed(2)}`,
+      msg: warnMsg ?? `卖出成功: ${finalSellPrice}元 ${sellLots}手, 盈利 ${profit.toFixed(2)}`,
     },
     clearInputs: true,
   };
 }
 
-/** 计算自动规划买入列表 */
-export function buildBuyPlan(stock: StockData): BuyPlan[] {
+export function buildBuyPlan(rawStock: StockData): BuyPlan[] {
+  const stock = ensureCycleState(rawStock);
   const cfg = stock.config;
   const lastClose = stock.lastClosePrice;
   let maxLevel = 0;
-  stock.positions.forEach((p) => {
-    if (p.gridLevel > maxLevel) maxLevel = p.gridLevel;
+  stock.positions.forEach((position) => {
+    if (position.gridLevel > maxLevel) maxLevel = position.gridLevel;
   });
+
   const plans: BuyPlan[] = [];
   for (let i = 1; i <= 30 && plans.length < 5; i++) {
     const level = maxLevel + i;
     const price = gridPriceOf(level, cfg);
     if (price <= 0) break;
-    // ±10% 限制: 买入价不低于收盘价 * 0.9
     if (lastClose && price < lastClose * 0.9) break;
     const suggest: SuggestLots = calcSuggestLots(price, stock);
     const cost = suggest.total * 100 * price * (1 + cfg.commissionRate);
@@ -208,27 +469,25 @@ export function buildBuyPlan(stock: StockData): BuyPlan[] {
   return plans;
 }
 
-/** 计算自动规划卖出列表 (按目标卖价分组, 一个卖单可关联多个买单) */
-export function buildSellPlan(stock: StockData): SellPlan[] {
+export function buildSellPlan(rawStock: StockData): SellPlan[] {
+  const stock = ensureCycleState(rawStock);
   const cfg = stock.config;
   const lastClose = stock.lastClosePrice;
   const feeRate = cfg.commissionRate + cfg.stampDutyRate;
-
-  // 按目标卖价分组 (round to 2 decimals 避免浮点误差)
   const groups = new Map<number, Position[]>();
-  for (const p of stock.positions) {
-    const key = Number(p.targetSellPrice.toFixed(2));
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(p);
+
+  for (const position of stock.positions) {
+    const key = Number(position.targetSellPrice.toFixed(2));
+    const list = groups.get(key) ?? [];
+    list.push(position);
+    groups.set(key, list);
   }
 
-  const sortedGroups = [...groups.entries()].sort((a, b) => a[0] - b[0]);
   const plans: SellPlan[] = [];
-  for (const [sellPrice, positions] of sortedGroups) {
-    // ±10% 限制: 卖出价不高于收盘价 * 1.1
+  for (const [sellPrice, positions] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
     if (lastClose && sellPrice > lastClose * 1.1) continue;
-    const totalShares = positions.reduce((s, p) => s + p.shares, 0);
-    const totalCost = positions.reduce((s, p) => s + p.buyCost, 0);
+    const totalShares = positions.reduce((sum, position) => sum + position.shares, 0);
+    const totalCost = positions.reduce((sum, position) => sum + position.buyCost, 0);
     const totalSellValue = totalShares * sellPrice;
     const totalFees = totalSellValue * feeRate;
     const totalProfit = totalSellValue - totalFees - totalCost;
@@ -246,29 +505,65 @@ export function buildSellPlan(stock: StockData): SellPlan[] {
   return plans;
 }
 
-/** 主动关联: 把指定买单绑定到某卖价; 原本挂在此卖价但未选中的买单回归默认卖价 */
-export function linkPositionsToSell(
-  stock: StockData,
-  sellPrice: number,
-  positionIds: number[],
-): StockData {
+export function buildTodayBuyOrders(rawStock: StockData): BuyPlan[] {
+  const stock = ensureCycleState(rawStock);
   const cfg = stock.config;
-  const newSellPrice = forceSellPrice(sellPrice);
-  const idSet = new Set(positionIds);
-  const positions = stock.positions.map((p) => {
-    if (idSet.has(p.id)) {
-      return { ...p, targetSellPrice: newSellPrice };
-    }
-    // 之前挂在此卖价但被移除 → 回归默认卖价
-    if (Math.abs(p.targetSellPrice - newSellPrice) < 0.001) {
-      return { ...p, targetSellPrice: calcSellPrice(p.buyPrice, p.shares) };
-    }
-    return p;
-  });
-  return { ...stock, positions, _editingPosId: undefined };
+  const lastClose = stock.lastClosePrice;
+  if (!lastClose) return [];
+
+  const maxLevel = stock.positions.length > 0 ? Math.max(...stock.positions.map((p) => p.gridLevel)) : 0;
+  const occupiedLevels = new Set(stock.positions.map((p) => p.gridLevel));
+  const orders: BuyPlan[] = [];
+  let level = Math.ceil((cfg.basePrice - lastClose) / cfg.gridDrop);
+  if (level < 1) level = 1;
+
+  for (let i = 0; i < 30 && orders.length < 5; i++) {
+    const currentLevel = level + i;
+    const price = gridPriceOf(currentLevel, cfg);
+    if (price <= 0) break;
+    if (price >= lastClose) continue;
+    if (price < lastClose * 0.9) break;
+    if (occupiedLevels.has(currentLevel)) continue;
+    const suggest = calcSuggestLots(price, stock);
+    const cost = suggest.total * 100 * price * (1 + cfg.commissionRate);
+    orders.push({ level: currentLevel, price, suggest, cost });
+  }
+  return orders;
 }
 
-/** 批量卖出: 按 sellPrice 一次性卖出关联的全部持仓 */
+export function linkPositionsToSell(rawStock: StockData, sellPrice: number, positionIds: number[]): StockData {
+  const stock = ensureCycleState(rawStock);
+  const newSellPrice = forceSellPrice(sellPrice);
+  const idSet = new Set(positionIds);
+  const positions = stock.positions.map((position) => {
+    if (idSet.has(position.id)) {
+      return { ...position, targetSellPrice: newSellPrice };
+    }
+    if (Math.abs(position.targetSellPrice - newSellPrice) < 0.001) {
+      return { ...position, targetSellPrice: calcSellPrice(position.buyPrice, position.shares) };
+    }
+    return position;
+  });
+
+  const cycles = stock.cycles.map((cycle) => {
+    if (cycle.positionId === null) return cycle;
+    if (idSet.has(cycle.positionId)) {
+      return { ...cycle, targetSellPrice: newSellPrice };
+    }
+    if (Math.abs(cycle.targetSellPrice - newSellPrice) < 0.001) {
+      return { ...cycle, targetSellPrice: calcSellPrice(cycle.buyPrice, cycle.buyShares) };
+    }
+    return cycle;
+  });
+
+  return {
+    ...stock,
+    positions,
+    cycles,
+    _editingPosId: undefined,
+  };
+}
+
 export function executeBatchSell(
   stock: StockData,
   posIds: number[],
@@ -278,76 +573,46 @@ export function executeBatchSell(
   if (posIds.length === 0) {
     return { stock, toast: { type: 'error', msg: '没有可卖出的持仓' } };
   }
-  let cur = stock;
+
+  let current = ensureCycleState(stock);
   let totalProfit = 0;
   let count = 0;
   for (const id of posIds) {
-    const pos = cur.positions.find((p) => p.id === id);
-    if (!pos) continue;
-    const result = executeSell(cur, id, sellPrice, pos.lots, date);
+    const position = current.positions.find((item) => item.id === id);
+    if (!position) continue;
+    const result = executeSell(current, id, sellPrice, position.lots, date);
     if (result.toast.type === 'error') continue;
-    cur = result.stock;
-    const last = cur.completedTrades[cur.completedTrades.length - 1];
-    if (last) totalProfit += last.profit;
+    current = result.stock;
+    const lastTrade = current.completedTrades[current.completedTrades.length - 1];
+    if (lastTrade) totalProfit += lastTrade.profit;
     count++;
   }
+
   if (count === 0) {
     return { stock, toast: { type: 'error', msg: '批量卖出失败' } };
   }
+
   return {
-    stock: cur,
+    stock: current,
     toast: {
       type: 'success',
-      msg: `批量卖出 ${count}笔 @${sellPrice}元, 盈利${totalProfit.toFixed(2)}`,
+      msg: `批量卖出 ${count}笔 @ ${sellPrice}元, 盈利 ${totalProfit.toFixed(2)}`,
     },
   };
 }
 
-/** 计算今日买入挂单 (基于昨日收盘价) */
-export function buildTodayBuyOrders(stock: StockData): BuyPlan[] {
-  const cfg = stock.config;
-  const lastClose = stock.lastClosePrice;
-  if (!lastClose) return [];
-
-  const maxLevel =
-    stock.positions.length > 0
-      ? Math.max(...stock.positions.map((p) => p.gridLevel))
-      : 0;
-  const orders: BuyPlan[] = [];
-  // 从当前价开始向下找网格层
-  let level = Math.ceil((cfg.basePrice - lastClose) / cfg.gridDrop);
-  if (level < 1) level = 1;
-
-  // 避开已有持仓的层级
-  const occupiedLevels = new Set(stock.positions.map((p) => p.gridLevel));
-
-  for (let i = 0; i < 30 && orders.length < 5; i++) {
-    const lv = level + i;
-    const price = gridPriceOf(lv, cfg);
-    if (price <= 0) break;
-    if (price >= lastClose) continue; // 买点必须在当前价下方
-    // ±10% 限制
-    if (price < lastClose * 0.9) break;
-    if (occupiedLevels.has(lv)) continue;
-    const suggest = calcSuggestLots(price, stock);
-    const cost = suggest.total * 100 * price * (1 + cfg.commissionRate);
-    orders.push({ level: lv, price, suggest, cost });
-  }
-  return orders;
-}
-
-/** 删除持仓 */
-export function deletePosition(stock: StockData, id: number): StockData {
-  return {
+export function deletePosition(rawStock: StockData, id: number): StockData {
+  const stock = ensureCycleState(rawStock);
+  return normalizeCycleLinks({
     ...stock,
-    positions: stock.positions.filter((p) => p.id !== id),
+    positions: stock.positions.filter((position) => position.id !== id),
+    cycles: stock.cycles.filter((cycle) => cycle.positionId !== id),
     _editingPosId: undefined,
-  };
+  });
 }
 
-/** 保存持仓编辑 */
 export function savePositionEdit(
-  stock: StockData,
+  rawStock: StockData,
   id: number,
   data: {
     buyPrice: number;
@@ -357,43 +622,69 @@ export function savePositionEdit(
     sellPrice: number;
   },
 ): { stock: StockData; toast: { type: 'success' | 'error'; msg: string } } {
+  const stock = ensureCycleState(rawStock);
   const cfg = stock.config;
   if (!data.buyPrice || !data.lots || data.lots <= 0) {
-    return { stock, toast: { type: 'error', msg: '请输入有效数据' } };
+    return { stock: rawStock, toast: { type: 'error', msg: '请输入有效数据' } };
   }
-  const newPositions = stock.positions.map((p) => {
-    if (p.id !== id) return p;
-    return {
-      ...p,
-      buyPrice: forceBuyPrice(data.buyPrice),
-      buyDate: data.buyDate,
-      lots: data.lots,
-      shares: data.lots * 100,
-      buyCost: data.buyCost,
-      buyCommission: (data.buyCost * cfg.commissionRate) / (1 + cfg.commissionRate),
-      targetSellPrice: forceSellPrice(data.sellPrice),
-      gridLevel: gridLevelOf(forceBuyPrice(data.buyPrice), cfg),
-    };
-  });
+
+  const buyPrice = forceBuyPrice(data.buyPrice);
+  const targetSellPrice = forceSellPrice(data.sellPrice);
+  const gridLevel = gridLevelOf(buyPrice, cfg);
+  const shares = data.lots * 100;
+  const buyCommission = (data.buyCost * cfg.commissionRate) / (1 + cfg.commissionRate);
+
+  const positions = stock.positions.map((position) =>
+    position.id !== id
+      ? position
+      : {
+          ...position,
+          buyPrice,
+          buyDate: data.buyDate,
+          lots: data.lots,
+          shares,
+          buyCost: data.buyCost,
+          buyCommission,
+          targetSellPrice,
+          gridLevel,
+        },
+  );
+
+  const cycles = stock.cycles.map((cycle) =>
+    cycle.positionId !== id
+      ? cycle
+      : {
+          ...cycle,
+          buyPrice,
+          buyDate: data.buyDate,
+          buyLots: data.lots,
+          buyShares: shares,
+          buyCost: data.buyCost,
+          targetSellPrice,
+          gridLevel,
+        },
+  );
+
   return {
-    stock: { ...stock, positions: newPositions, _editingPosId: undefined },
+    stock: normalizeCycleLinks({ ...stock, positions, cycles, _editingPosId: undefined }),
     toast: { type: 'success', msg: '持仓已更新' },
   };
 }
 
-/** 删除已完成交易 */
-export function deleteTrade(stock: StockData, tradeId: number): StockData {
-  const newStock: StockData = {
-    ...stock,
-    completedTrades: stock.completedTrades.filter((t) => t.tradeId !== tradeId),
-    _editingTradeId: undefined,
-  };
-  return recalcAccumulatedProfit(newStock);
+export function deleteTrade(rawStock: StockData, tradeId: number): StockData {
+  const stock = ensureCycleState(rawStock);
+  return refreshProfitSeries(
+    normalizeCycleLinks({
+      ...stock,
+      completedTrades: stock.completedTrades.filter((trade) => trade.tradeId !== tradeId),
+      cycles: stock.cycles.filter((cycle) => cycle.tradeId !== tradeId),
+      _editingTradeId: undefined,
+    }),
+  );
 }
 
-/** 保存交易编辑 */
 export function saveTradeEdit(
-  stock: StockData,
+  rawStock: StockData,
   tradeId: number,
   data: {
     buyPrice: number;
@@ -405,61 +696,129 @@ export function saveTradeEdit(
     netProceeds: number;
   },
 ): { stock: StockData; toast: { type: 'success' | 'error'; msg: string } } {
+  const stock = ensureCycleState(rawStock);
   const cfg = stock.config;
-  const newTrades = stock.completedTrades.map((t) => {
-    if (t.tradeId !== tradeId) return t;
-    const newBuyPrice = forceBuyPrice(data.buyPrice);
-    const newSellPrice = forceSellPrice(data.sellPrice);
+  const buyPrice = forceBuyPrice(data.buyPrice);
+  const finalSellPrice = forceSellPrice(data.sellPrice);
+  const sellShares = data.lots * 100;
+  const sellValue = finalSellPrice * sellShares;
+
+  const completedTrades = stock.completedTrades.map((trade) => {
+    if (trade.tradeId !== tradeId) return trade;
     return {
-      ...t,
-      buyPrice: newBuyPrice,
+      ...trade,
+      buyPrice,
       buyDate: data.buyDate,
       buyLots: data.lots,
       buyCost: data.buyCost,
-      sellPrice: newSellPrice,
+      sellPrice: finalSellPrice,
       sellDate: data.sellDate,
+      sellValue: Number(sellValue.toFixed(2)),
       netProceeds: data.netProceeds,
-      sellCommission: (data.netProceeds * cfg.commissionRate) / (1 + cfg.commissionRate),
-      stampDuty: newSellPrice * data.lots * 100 * cfg.stampDutyRate,
-      profit: data.netProceeds - data.buyCost,
-      gridLevel: gridLevelOf(newBuyPrice, cfg),
-      holdDays: Math.round(
-        (new Date(data.sellDate).getTime() - new Date(data.buyDate).getTime()) / 86400000,
-      ),
-    } as CompletedTrade;
+      sellCommission: Number((sellValue * cfg.commissionRate).toFixed(2)),
+      stampDuty: Number((sellValue * cfg.stampDutyRate).toFixed(2)),
+      profit: Number((data.netProceeds - data.buyCost).toFixed(2)),
+      gridLevel: gridLevelOf(buyPrice, cfg),
+      holdDays: Math.round((new Date(data.sellDate).getTime() - new Date(data.buyDate).getTime()) / 86400000),
+    };
   });
-  const newStock: StockData = {
-    ...stock,
-    completedTrades: newTrades,
-    _editingTradeId: undefined,
-  };
-  const recalc = recalcAccumulatedProfit(newStock);
-  return { stock: recalc, toast: { type: 'success', msg: '交易已更新' } };
-}
 
-/** 重新计算累计盈利 (返回新对象, 不修改原对象) */
-export function recalcAccumulatedProfit(stock: StockData): StockData {
-  let acc = 0;
-  const newTrades = stock.completedTrades.map((t) => {
-    acc += t.profit;
-    return { ...t, accumulatedProfit: Number(acc.toFixed(2)) };
+  const cycles = stock.cycles.map((cycle) => {
+    if (cycle.tradeId !== tradeId) return cycle;
+    return {
+      ...cycle,
+      gridLevel: gridLevelOf(buyPrice, cfg),
+      buyPrice,
+      buyDate: data.buyDate,
+      buyLots: data.lots,
+      buyShares: sellShares,
+      buyCost: data.buyCost,
+      targetSellPrice: finalSellPrice,
+      sellPrice: finalSellPrice,
+      sellDate: data.sellDate,
+      sellValue: Number(sellValue.toFixed(2)),
+      profit: Number((data.netProceeds - data.buyCost).toFixed(2)),
+    };
   });
+
   return {
-    ...stock,
-    completedTrades: newTrades,
-    accumulatedProfit: Number(acc.toFixed(2)),
+    stock: refreshProfitSeries(
+      normalizeCycleLinks({
+        ...stock,
+        completedTrades,
+        cycles,
+        _editingTradeId: undefined,
+      }),
+    ),
+    toast: { type: 'success', msg: '交易已更新' },
   };
 }
 
-/** 保存配置 */
-export function saveStockConfig(
-  stock: StockData,
-  newConfig: StockConfig,
-): StockData {
-  const newStock: StockData = { ...stock, config: newConfig };
-  // 仅在没有持仓和已完成交易时重置可用资金
+export function recalcAccumulatedProfit(rawStock: StockData): StockData {
+  return refreshProfitSeries(ensureCycleState(rawStock));
+}
+
+export function saveStockConfig(rawStock: StockData, newConfig: StockConfig): StockData {
+  const stock = ensureCycleState(rawStock);
+  const nextStock: StockData = { ...stock, config: newConfig };
   if (stock.positions.length === 0 && stock.completedTrades.length === 0) {
-    newStock.availableCapital = newConfig.startCapital;
+    nextStock.availableCapital = newConfig.startCapital;
   }
-  return newStock;
+  return nextStock;
+}
+
+export function buildGridLevelStats(rawStock: StockData): GridLevelStat[] {
+  const stock = ensureCycleState(rawStock);
+  const grouped = new Map<number, GridCycle[]>();
+  for (const cycle of stock.cycles) {
+    const list = grouped.get(cycle.gridLevel) ?? [];
+    list.push(cycle);
+    grouped.set(cycle.gridLevel, list);
+  }
+
+  return [...grouped.entries()]
+    .map(([gridLevel, cycles]) => {
+      const sorted = [...cycles].sort((a, b) => a.cycleNumber - b.cycleNumber);
+      const closedCycles = sorted.filter((cycle) => cycle.status === 'closed').length;
+      const openCycles = sorted.filter((cycle) => cycle.status === 'open').length;
+      const accumulatedProfit = sorted.reduce((sum, cycle) => sum + (cycle.profit ?? 0), 0);
+      const status: GridLevelStat['status'] = openCycles > 0 ? 'holding' : closedCycles > 0 ? 'closed' : 'waiting';
+      return {
+        gridLevel,
+        referenceBuyPrice: sorted[sorted.length - 1]?.buyPrice ?? 0,
+        cycles: sorted.length,
+        closedCycles,
+        openCycles,
+        accumulatedProfit,
+        status,
+        latestCycleNumber: sorted[sorted.length - 1]?.cycleNumber ?? 0,
+      };
+    })
+    .sort((a, b) => a.gridLevel - b.gridLevel);
+}
+
+export function buildCapitalPressure(rawStock: StockData): CapitalPressure {
+  const stock = ensureCycleState(rawStock);
+  const deployedCapital = stock.positions.reduce((sum, position) => sum + position.buyCost, 0);
+  const totalCapital = stock.config.startCapital;
+  const reserveCapital = Math.max(0, totalCapital - deployedCapital);
+  const deployedRatio = totalCapital > 0 ? deployedCapital / totalCapital : 0;
+  const remainingGridSlots =
+    stock.config.baseBuyAmount > 0 ? Math.floor(reserveCapital / stock.config.baseBuyAmount) : 0;
+  const maxDropLevels =
+    stock.config.gridDrop > 0 ? Math.floor(reserveCapital / Math.max(stock.config.baseBuyAmount, 1)) : 0;
+
+  let warningLevel: CapitalPressure['warningLevel'] = 'safe';
+  if (deployedRatio > 0.9) warningLevel = 'danger';
+  else if (deployedRatio > 0.7) warningLevel = 'warn';
+
+  return {
+    deployedCapital: Number(deployedCapital.toFixed(2)),
+    totalCapital,
+    deployedRatio,
+    reserveCapital: Number(reserveCapital.toFixed(2)),
+    remainingGridSlots,
+    maxDropLevels,
+    warningLevel,
+  };
 }

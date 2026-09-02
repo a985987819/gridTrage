@@ -1,47 +1,63 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type { AppData, ToastType } from './types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AppData, SyncStatus, ToastType } from './types';
 import { STOCK_PRESETS } from './constants/presets';
-import { loadState, saveState, createFreshStockData, recordBackupTime, shouldRemindBackup } from './services/storage';
 import {
+  createFreshStockData,
+  loadState,
+  migrateLegacyDataToIdentity,
+  recordBackupTime,
+  saveState,
+  shouldRemindBackup,
+} from './services/storage';
+import {
+  deactivateSync,
+  getSyncStatus,
+  initSync,
+  injectSyncHooks,
+  onSyncStatusChange,
+  pullNow,
+  schedulePush,
+} from './services/cloudSync';
+import { clearSyncIdentity, getSyncUserId, setSyncIdentity } from './services/syncIdentity';
+import {
+  deletePosition,
+  deleteTrade,
+  executeBatchSell,
   executeBuy,
   executeSell,
-  executeBatchSell,
   linkPositionsToSell,
-  deletePosition,
   savePositionEdit,
-  deleteTrade,
-  saveTradeEdit,
   saveStockConfig,
+  saveTradeEdit,
 } from './services/trading';
-import {
-  autoSyncExport,
-  restoreFileHandle,
-  linkSyncFile,
-  exportSyncFile,
-} from './services/sync';
-import { parseExcelFile, importExcelToAppData } from './services/excelImport';
+import { exportSyncFile } from './services/sync';
+import { importExcelToAppData, parseExcelFile } from './services/excelImport';
 import { exportAppDataToExcel } from './services/excelExport';
 import { todayStr } from './utils/format';
-
-import { Toast } from './components/Toast';
-import { Modal } from './components/Modal';
-import { StockSwitcher } from './components/StockSwitcher';
-import { Header } from './components/Header';
+import { CapitalChart } from './components/CapitalChart';
 import { ConfigPanel } from './components/ConfigPanel';
-import { OverviewGrid } from './components/OverviewGrid';
-import { ZoneAnalysis } from './components/ZoneAnalysis';
+import { GridLevelStats } from './components/GridLevelStats';
+import { Header } from './components/Header';
+import { Modal } from './components/Modal';
+import { MonthlyStats } from './components/MonthlyStats';
 import { OperationPanel } from './components/OperationPanel';
+import { OverviewGrid } from './components/OverviewGrid';
 import { PendingSellSummary } from './components/PendingSellSummary';
 import { PlanGrid } from './components/PlanGrid';
 import { PositionsTable } from './components/PositionsTable';
-import { TradesTable } from './components/TradesTable';
-import { MonthlyStats } from './components/MonthlyStats';
-import { CapitalChart } from './components/CapitalChart';
+import { StockSwitcher } from './components/StockSwitcher';
+import { SyncPanel } from './components/SyncPanel';
+import { Toast } from './components/Toast';
 import { TradeCalendar } from './components/TradeCalendar';
+import { TradesTable } from './components/TradesTable';
+import { UnifiedTradeTable } from './components/UnifiedTradeTable';
+import { ZoneAnalysis } from './components/ZoneAnalysis';
 
-/** 应用根组件: 状态管理 + 视图编排 */
+type ViewMode = 'unified' | 'positions' | 'completed';
+
 export default function App() {
   const [appData, setAppData] = useState<AppData>(() => loadState());
+  const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [configVisible, setConfigVisible] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: ToastType; visible: boolean }>({
     msg: '',
@@ -54,96 +70,71 @@ export default function App() {
     visible: boolean;
     callback?: () => void;
   }>({ title: '', text: '', visible: false });
-  const [syncFileLabel, setSyncFileLabel] = useState('关联同步文件');
-  const [syncFileColor, setSyncFileColor] = useState<'green' | 'yellow' | 'default'>(
-    'default',
-  );
-  // Excel 导入用的隐藏 file input
-  const excelInputRef = useRef<HTMLInputElement>(null);
-  // 卖单 hover 时高亮的关联买单ID集合
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncPanelVisible, setSyncPanelVisible] = useState(false);
   const [highlightedPosIds, setHighlightedPosIds] = useState<number[]>([]);
-  // 备份提醒状态
   const [showBackupReminder, setShowBackupReminder] = useState(shouldRemindBackup());
-  // 始终持有最新 appData 引用 (解决过期闭包)
+  const excelInputRef = useRef<HTMLInputElement>(null);
   const appDataRef = useRef(appData);
   appDataRef.current = appData;
-  // 运行时配置快照 (与模块级 STOCK_PRESETS 区分, handleSaveConfig 修改此快照)
-  const runtimeConfigs = useRef(new Map(Object.entries(STOCK_PRESETS)));
-  runtimeConfigs.current = new Map(Object.entries(STOCK_PRESETS));
 
-  // 暴露给 window 以便调试
   useEffect(() => {
-    (window as any).appData = appData;
+    (window as Window & { appData?: AppData }).appData = appData;
   }, [appData]);
 
-  // 当前股票
   const stock = appData.stocks[appData.currentStockKey];
 
-  /** 自动同步导出 (依赖变化时触发) */
-  const syncTimer = useRef<number | null>(null);
   useEffect(() => {
-    if (syncTimer.current) window.clearTimeout(syncTimer.current);
-    syncTimer.current = window.setTimeout(() => {
-      autoSyncExport(appData);
-    }, 200);
+    injectSyncHooks({
+      getAppData: () => appDataRef.current,
+      applyRemote: (remote) => {
+        setAppData(remote);
+        saveState(remote);
+      },
+    });
+    const cleanupSync = initSync();
+    const unsub = onSyncStatusChange(setSyncStatus);
+    setSyncStatus(getSyncStatus());
     return () => {
-      if (syncTimer.current) window.clearTimeout(syncTimer.current);
+      unsub();
+      cleanupSync();
     };
+  }, []);
+
+  useEffect(() => {
+    schedulePush();
   }, [appData]);
 
-  // 启动时恢复文件同步 handle
-  useEffect(() => {
-    restoreFileHandle((label, color) => {
-      setSyncFileLabel(label);
-      setSyncFileColor(color);
+  const updateCurrentStock = useCallback((updater: (prev: typeof stock) => typeof stock) => {
+    setAppData((prev) => {
+      const newStock = updater(prev.stocks[prev.currentStockKey]);
+      const newData = { ...prev, stocks: { ...prev.stocks, [prev.currentStockKey]: newStock } };
+      saveState(newData);
+      return newData;
     });
   }, []);
 
-  /** 更新当前股票数据 */
-  const updateCurrentStock = useCallback(
-    (updater: (prev: typeof stock) => typeof stock) => {
-      setAppData((prev) => {
-        const newStock = updater(prev.stocks[prev.currentStockKey]);
-        const newData = {
-          ...prev,
-          stocks: { ...prev.stocks, [prev.currentStockKey]: newStock },
-        };
-        saveState(newData);
-        return newData;
-      });
-    },
-    [],
-  );
-
-  /** 显示 Toast */
   const showToast = useCallback((msg: string, type: ToastType = 'info') => {
     setToast({ msg, type, visible: true });
   }, []);
 
-  /** 关闭 Toast */
   const closeToast = useCallback(() => {
     setToast((prev) => ({ ...prev, visible: false }));
   }, []);
 
-  /** 显示 Modal */
   const showModal = useCallback((title: string, text: string, callback?: () => void) => {
     setModal({ title, text, visible: true, callback });
   }, []);
 
-  /** 关闭 Modal */
   const closeModal = useCallback(() => {
     setModal((prev) => ({ ...prev, visible: false, callback: undefined }));
   }, []);
 
-  /** Modal 确认 */
   const onModalConfirm = useCallback(() => {
-    if (modal.callback) modal.callback();
+    modal.callback?.();
     closeModal();
   }, [modal, closeModal]);
 
-  // ===== 业务回调 =====
-
-  /** 切换股票 */
   const switchStock = (key: string) => {
     if (appData.currentStockKey === key) return;
     setAppData((prev) => {
@@ -154,7 +145,6 @@ export default function App() {
     showToast(`已切换到 ${STOCK_PRESETS[key].stockName}`, 'info');
   };
 
-  /** 执行买入 */
   const handleExecuteBuy = (price: number, lots: number, date: string) => {
     const result = executeBuy(stock, price, lots, date);
     if (result.toast.type === 'error') {
@@ -165,13 +155,7 @@ export default function App() {
     showToast(result.toast.msg, result.toast.type === 'warn' ? 'warn' : 'success');
   };
 
-  /** 执行卖出 */
-  const handleExecuteSell = (
-    posId: number,
-    price: number,
-    lots: number,
-    date: string,
-  ) => {
+  const handleExecuteSell = (posId: number, price: number, lots: number, date: string) => {
     const result = executeSell(stock, posId, price, lots, date);
     if (result.toast.type === 'error') {
       showToast(result.toast.msg, 'error');
@@ -181,25 +165,21 @@ export default function App() {
     showToast(result.toast.msg, result.toast.type === 'warn' ? 'warn' : 'success');
   };
 
-  /** 快速买入 (来自规划/今日挂单) */
   const quickBuy = (price: number, lots: number) => {
     handleExecuteBuy(price, lots, todayStr());
   };
 
-  /** 快速卖出 */
   const quickSell = (posId: number) => {
-    const pos = stock.positions.find((p) => p.id === posId);
+    const pos = stock.positions.find((item) => item.id === posId);
     if (!pos) return;
     handleExecuteSell(posId, pos.targetSellPrice, pos.lots, todayStr());
   };
 
-  /** 设置昨日收盘价 */
   const setLastClose = (val: number | null) => {
     updateCurrentStock((prev) => ({ ...prev, lastClosePrice: val }));
-    if (val) showToast(`已设置昨日收盘价: ${val}`, 'success');
+    if (val) showToast(`已设置 2026-07-29 收盘价: ${val}`, 'success');
   };
 
-  /** 高亮卖单规划项 */
   const highlightSellPlan = (posId: number) => {
     const el = document.getElementById(`sell-plan-item-${posId}`);
     if (el) {
@@ -210,36 +190,11 @@ export default function App() {
     }
   };
 
-  /** 卖单 hover: 高亮关联的买入项 */
-  const handleHoverSell = (posIds: number[]) => {
-    setHighlightedPosIds(posIds);
-  };
-
-  /** 卖单 hover 结束: 清除高亮 */
-  const handleHoverSellEnd = () => {
-    setHighlightedPosIds([]);
-  };
-
-  /** 持仓行 hover: 高亮同卖价的全部关联买单 */
-  const handleHoverPosition = (posIds: number[]) => {
-    setHighlightedPosIds(posIds);
-  };
-
-  /** 持仓行 hover 结束: 清除高亮 */
-  const handleHoverPositionEnd = () => {
-    setHighlightedPosIds([]);
-  };
-
-  /** 关联买单到卖价 (支持多选, 数量/盈利合并) */
   const handleLinkSell = (sellPrice: number, positionIds: number[]) => {
     updateCurrentStock((prev) => linkPositionsToSell(prev, sellPrice, positionIds));
-    showToast(
-      `已关联 ${positionIds.length} 笔买单到 ${sellPrice.toFixed(2)}元卖价`,
-      'success',
-    );
+    showToast(`已关联 ${positionIds.length} 笔持仓到 ${sellPrice.toFixed(2)} 元卖价`, 'success');
   };
 
-  /** 批量卖出: 一次性卖出此卖价关联的全部持仓 */
   const handleBatchSell = (posIds: number[], sellPrice: number) => {
     const result = executeBatchSell(stock, posIds, sellPrice, todayStr());
     if (result.toast.type === 'error') {
@@ -250,12 +205,7 @@ export default function App() {
     showToast(result.toast.msg, 'success');
   };
 
-  /** OperationPanel 批量卖出: 多选持仓 + 统一卖价 + 自定义日期 */
-  const handleBatchSellFromOp = (
-    posIds: number[],
-    sellPrice: number,
-    date: string,
-  ) => {
+  const handleBatchSellFromOp = (posIds: number[], sellPrice: number, date: string) => {
     const result = executeBatchSell(stock, posIds, sellPrice, date);
     if (result.toast.type === 'error') {
       showToast(result.toast.msg, 'error');
@@ -265,58 +215,54 @@ export default function App() {
     showToast(result.toast.msg, 'success');
   };
 
-  /** 导出 Excel (多 sheet: 概览/持仓/已完成交易/今日挂单) */
   const handleExportExcel = () => {
     exportAppDataToExcel(appData, showToast);
     recordBackupTime();
     setShowBackupReminder(false);
   };
 
-  /** 切换配置面板显示 */
-  const toggleConfig = () => setConfigVisible((v) => !v);
+  const handleEnableIdentity = async (pin: string) => {
+    await setSyncIdentity(pin);
+    migrateLegacyDataToIdentity(getSyncUserId());
+    window.location.reload();
+  };
 
-  /** 保存配置 */
+  const handleClearIdentity = () => {
+    clearSyncIdentity();
+    deactivateSync();
+    window.location.reload();
+  };
+
+  const handleSyncNow = () => {
+    void pullNow();
+  };
+
   const handleSaveConfig = (newConfig: typeof stock.config) => {
     updateCurrentStock((prev) => saveStockConfig(prev, newConfig));
-    // 同步覆盖运行时配置快照 (不修改模块级 STOCK_PRESETS 常量)
-    const key = appData.currentStockKey;
-    runtimeConfigs.current.set(key, {
-      ...(STOCK_PRESETS[key] || {}),
-      ...newConfig,
-    });
     setConfigVisible(false);
     showToast('参数已保存', 'success');
   };
 
-  /** 载入预设 */
   const loadPreset = () => {
     const key = appData.currentStockKey;
     updateCurrentStock(() => createFreshStockData(key));
-    showToast(`已载入${STOCK_PRESETS[key].stockName}预设参数`, 'success');
+    showToast(`已加载 ${STOCK_PRESETS[key].stockName} 预设参数`, 'success');
   };
 
-  /** 重置当前股票 */
   const confirmReset = () => {
     const name = STOCK_PRESETS[appData.currentStockKey].stockName;
-    showModal(
-      '重置确认',
-      `将清空 ${name} 的所有交易记录和持仓, 恢复初始状态。确定继续吗?`,
-      () => {
-        const key = appData.currentStockKey;
-        updateCurrentStock(() => createFreshStockData(key));
-        showToast(`${name} 已重置`, 'success');
-      },
-    );
+    showModal('重置确认', `将清空 ${name} 的全部交易记录和持仓，恢复初始状态。是否继续？`, () => {
+      const key = appData.currentStockKey;
+      updateCurrentStock(() => createFreshStockData(key));
+      showToast(`${name} 已重置`, 'success');
+    });
   };
 
-  /** 触发 Excel 文件选择 */
   const handleImportExcel = () => {
     excelInputRef.current?.click();
   };
 
-  /** 处理单个 Excel 文件 (供 input 选择和拖入共用) */
   const handleExcelFile = async (file: File) => {
-    // 校验文件类型
     const isExcel =
       file.name.endsWith('.xlsx') ||
       file.name.endsWith('.xls') ||
@@ -335,49 +281,36 @@ export default function App() {
       }
       showModal(
         '导入 Excel 确认',
-        `检测到 ${rows.length} 条记录。导入将替换匹配股票的全部数据(持仓+已完成交易), 并按新算法重算卖价 (shares*(sell-buy)=buy*100, x.x1买/x.x8卖), 是否继续?`,
-        async () => {
+        `检测到 ${rows.length} 条记录。导入会覆盖匹配股票的持仓与已完成交易，并自动识别档位周期，是否继续？`,
+        () => {
           try {
-            // 使用 ref 获取最新 appData, 避免过期闭包覆盖期间变更
             const { data: newData, summary } = importExcelToAppData(appDataRef.current, rows);
             setAppData(newData);
             saveState(newData);
 
-            const parts: string[] = [
-              `成功导入 ${summary.imported} 条`,
-              `跳过 ${summary.skipped} 条`,
-            ];
-            if (summary.stocksUpdated.length > 0) {
-              parts.push(`更新股票: ${summary.stocksUpdated.join(', ')}`);
-            }
-            if (summary.skippedStocks.length > 0) {
-              parts.push(`未识别股票: ${summary.skippedStocks.join(', ')}`);
-            }
+            const parts = [`成功导入 ${summary.imported} 条`, `跳过 ${summary.skipped} 条`];
+            if (summary.stocksUpdated.length > 0) parts.push(`更新股票: ${summary.stocksUpdated.join(', ')}`);
+            if (summary.skippedStocks.length > 0) parts.push(`未识别股票: ${summary.skippedStocks.join(', ')}`);
             showToast(parts.join(' | '), summary.imported > 0 ? 'success' : 'warn');
           } catch (err) {
             console.error(err);
-            showToast('导入失败: ' + (err as Error).message, 'error');
+            showToast(`导入失败: ${(err as Error).message}`, 'error');
           }
         },
       );
     } catch (err) {
       console.error(err);
-      showToast('解析 Excel 失败: ' + (err as Error).message, 'error');
+      showToast(`解析 Excel 失败: ${(err as Error).message}`, 'error');
     }
   };
 
-  /** 处理 Excel 文件选中 */
-  const handleExcelFileChange = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleExcelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    // 清空 input 以便重复选择同一文件
     e.target.value = '';
     if (!file) return;
     handleExcelFile(file);
   };
 
-  /** 拖入 Excel 文件 */
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -386,13 +319,11 @@ export default function App() {
     handleExcelFile(file);
   };
 
-  /** 阻止默认拖入行为 (允许 drop) */
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
   };
 
-  /** 导出全部数据 */
   const exportData = () => {
     const data = JSON.stringify(appData, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -407,35 +338,16 @@ export default function App() {
     showToast('数据已导出', 'success');
   };
 
-  /** 关联同步文件 */
-  const handleLinkSyncFile = () => {
-    linkSyncFile(
-      (msg, type) => showToast(msg, type),
-      (label, color) => {
-        setSyncFileLabel(label);
-        setSyncFileColor(color);
-      },
-    );
-  };
-
-  /** 删除持仓 */
   const handleDeletePosition = (id: number) => {
-    showModal('删除确认', `确定删除持仓 #${id} 吗? 此操作不可撤销。`, () => {
+    showModal('删除确认', `确定删除持仓 #${id} 吗？此操作不可撤销。`, () => {
       updateCurrentStock((prev) => deletePosition(prev, id));
       showToast('持仓已删除', 'success');
     });
   };
 
-  /** 保存持仓编辑 */
   const handleSavePosEdit = (
     id: number,
-    data: {
-      buyPrice: number;
-      buyDate: string;
-      lots: number;
-      buyCost: number;
-      sellPrice: number;
-    },
+    data: { buyPrice: number; buyDate: string; lots: number; buyCost: number; sellPrice: number },
   ) => {
     const result = savePositionEdit(stock, id, data);
     if (result.toast.type === 'error') {
@@ -446,15 +358,13 @@ export default function App() {
     showToast(result.toast.msg, 'success');
   };
 
-  /** 删除交易 */
   const handleDeleteTrade = (id: number) => {
-    showModal('删除确认', `确定删除交易 #${id} 吗? 此操作不可撤销。`, () => {
+    showModal('删除确认', `确定删除交易 #${id} 吗？此操作不可撤销。`, () => {
       updateCurrentStock((prev) => deleteTrade(prev, id));
       showToast('交易已删除', 'success');
     });
   };
 
-  /** 保存交易编辑 */
   const handleSaveTradeEdit = (
     id: number,
     data: {
@@ -477,43 +387,37 @@ export default function App() {
   };
 
   return (
-    <div
-      className="app-root max-w-[1300px] mx-auto p-4 relative"
-      id="app-root"
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-    >
-      <input
-        id="excel-file-input"
-        ref={excelInputRef}
-        type="file"
-        accept=".xlsx,.xls"
-        className="hidden"
-        onChange={handleExcelFileChange}
-      />
+    <div className="app-root relative mx-auto max-w-[1380px] p-4" id="app-root" onDrop={handleDrop} onDragOver={handleDragOver}>
+      <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelFileChange} />
       <StockSwitcher appData={appData} onSwitch={switchStock} />
       <Header
         config={stock.config}
-        syncFileLabel={syncFileLabel}
-        syncFileColor={syncFileColor}
+        syncStatus={syncStatus}
         showBackupReminder={showBackupReminder}
-        onToggleConfig={toggleConfig}
-        onLinkSyncFile={handleLinkSyncFile}
-        onExportSyncFile={() => exportSyncFile(showToast)}
+        onToggleConfig={() => setConfigVisible((prev) => !prev)}
+        onOpenSyncPanel={() => setSyncPanelVisible(true)}
+        onExportSyncFile={() => exportSyncFile(appData, showToast)}
         onExportData={exportData}
         onExportExcel={handleExportExcel}
         onConfirmReset={confirmReset}
         onImportExcel={handleImportExcel}
       />
-      <ConfigPanel
-        config={stock.config}
-        visible={configVisible}
-        onSave={handleSaveConfig}
-        onLoadPreset={loadPreset}
-      />
+      <ConfigPanel config={stock.config} visible={configVisible} onSave={handleSaveConfig} onLoadPreset={loadPreset} />
+
       <div className="mb-4">
         <OverviewGrid stock={stock} />
       </div>
+
+      <PlanGrid
+        stock={stock}
+        onQuickBuy={quickBuy}
+        onHoverSell={(posIds) => setHighlightedPosIds(posIds)}
+        onHoverSellEnd={() => setHighlightedPosIds([])}
+        onLinkSell={handleLinkSell}
+        onBatchSell={handleBatchSell}
+      />
+
+      <GridLevelStats stock={stock} />
       <MonthlyStats stock={stock} />
       <CapitalChart stock={stock} />
       <ZoneAnalysis stock={stock} onLastCloseChange={setLastClose} />
@@ -524,55 +428,63 @@ export default function App() {
         onExecuteSell={handleExecuteSell}
         onExecuteBatchSell={handleBatchSellFromOp}
       />
-      <PlanGrid
-        stock={stock}
-        onQuickBuy={quickBuy}
-        onHoverSell={handleHoverSell}
-        onHoverSellEnd={handleHoverSellEnd}
-        onLinkSell={handleLinkSell}
-        onBatchSell={handleBatchSell}
-      />
       <TradeCalendar stock={stock} />
-      <PositionsTable
-        stock={stock}
-        onQuickSell={quickSell}
-        onHighlightSellPlan={highlightSellPlan}
-        highlightedPosIds={highlightedPosIds}
-        onHoverPosition={handleHoverPosition}
-        onHoverPositionEnd={handleHoverPositionEnd}
-        onStartEdit={(id) =>
-          updateCurrentStock((prev) => ({ ...prev, _editingPosId: id }))
-        }
-        onCancelEdit={() =>
-          updateCurrentStock((prev) => ({ ...prev, _editingPosId: undefined }))
-        }
-        onSaveEdit={handleSavePosEdit}
-        onDelete={handleDeletePosition}
-      />
-      <TradesTable
-        stock={stock}
-        onStartEdit={(id) =>
-          updateCurrentStock((prev) => ({ ...prev, _editingTradeId: id }))
-        }
-        onCancelEdit={() =>
-          updateCurrentStock((prev) => ({ ...prev, _editingTradeId: undefined }))
-        }
-        onSaveEdit={handleSaveTradeEdit}
-        onDelete={handleDeleteTrade}
-      />
 
-      <Toast
-        message={toast.msg}
-        type={toast.type}
-        visible={toast.visible}
-        onClose={closeToast}
-      />
-      <Modal
-        title={modal.title}
-        text={modal.text}
-        visible={modal.visible}
-        onConfirm={onModalConfirm}
-        onCancel={closeModal}
+      <div className="card">
+        <div className="card-title">
+          交易明细视图
+          <div className="flex gap-2">
+            {([
+              ['unified', '统一视图'],
+              ['positions', '持仓明细'],
+              ['completed', '已完成交易'],
+            ] as Array<[ViewMode, string]>).map(([mode, label]) => (
+              <button
+                key={mode}
+                className={`btn btn-sm ${viewMode === mode ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setViewMode(mode)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {viewMode === 'unified' && <UnifiedTradeTable stock={stock} />}
+        {viewMode === 'positions' && (
+          <PositionsTable
+            stock={stock}
+            onQuickSell={quickSell}
+            onHighlightSellPlan={highlightSellPlan}
+            highlightedPosIds={highlightedPosIds}
+            onHoverPosition={(posIds) => setHighlightedPosIds(posIds)}
+            onHoverPositionEnd={() => setHighlightedPosIds([])}
+            onStartEdit={(id) => updateCurrentStock((prev) => ({ ...prev, _editingPosId: id }))}
+            onCancelEdit={() => updateCurrentStock((prev) => ({ ...prev, _editingPosId: undefined }))}
+            onSaveEdit={handleSavePosEdit}
+            onDelete={handleDeletePosition}
+          />
+        )}
+        {viewMode === 'completed' && (
+          <TradesTable
+            stock={stock}
+            onStartEdit={(id) => updateCurrentStock((prev) => ({ ...prev, _editingTradeId: id }))}
+            onCancelEdit={() => updateCurrentStock((prev) => ({ ...prev, _editingTradeId: undefined }))}
+            onSaveEdit={handleSaveTradeEdit}
+            onDelete={handleDeleteTrade}
+          />
+        )}
+      </div>
+
+      <Toast message={toast.msg} type={toast.type} visible={toast.visible} onClose={closeToast} />
+      <Modal title={modal.title} text={modal.text} visible={modal.visible} onConfirm={onModalConfirm} onCancel={closeModal} />
+      <SyncPanel
+        visible={syncPanelVisible}
+        onClose={() => setSyncPanelVisible(false)}
+        syncStatus={syncStatus}
+        onEnableIdentity={handleEnableIdentity}
+        onClearIdentity={handleClearIdentity}
+        onSyncNow={handleSyncNow}
       />
     </div>
   );
